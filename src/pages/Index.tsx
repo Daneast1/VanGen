@@ -34,6 +34,8 @@ export default function Index() {
   const [prefix, setPrefix] = useState('');
   const [suffix, setSuffix] = useState('');
   const [btcType, setBtcType] = useState('p2pkh');
+  const [targetAddress, setTargetAddress] = useState('');
+  const [entropyCount, setEntropyCount] = useState(0);
   const [entropyCount, setEntropyCount] = useState(0);
   const entropyBuffer = useRef<number[]>([]);
 
