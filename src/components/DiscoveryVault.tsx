@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FoundAddress } from '@/hooks/useVanityGenerator';
+import { useBalanceChecker } from '@/hooks/useBalanceChecker';
 
 interface Props {
   results: FoundAddress[];
