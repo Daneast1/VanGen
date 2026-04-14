@@ -99,28 +99,48 @@ export default function DiscoveryVault({ results, onClear }: Props) {
               <th className="px-4 py-2 text-left">#</th>
               <th className="px-4 py-2 text-left">Address</th>
               <th className="px-4 py-2 text-left">Private Key</th>
+              <th className="px-4 py-2 text-left">Balance</th>
               <th className="px-4 py-2 text-left">Type</th>
               <th className="px-4 py-2 text-left">✓</th>
             </tr>
           </thead>
           <tbody>
-            {results.map((r, i) => (
-              <tr key={i} className="border-b border-border/50 hover:bg-accent/50 transition-colors">
-                <td className="px-4 py-2 text-muted-foreground">{i + 1}</td>
-                <td className="px-4 py-2 font-mono text-primary break-all">{r.address}</td>
-                <td className="px-4 py-2">
-                  <button onClick={() => toggleReveal(i)} className="font-mono text-left break-all">
-                    {revealedKeys.has(i) ? (
-                      <span className="text-destructive">{r.privateKey}</span>
+            {results.map((r, i) => {
+              const bal = getBalance(r.address);
+              return (
+                <tr key={i} className="border-b border-border/50 hover:bg-accent/50 transition-colors">
+                  <td className="px-4 py-2 text-muted-foreground">{i + 1}</td>
+                  <td className="px-4 py-2 font-mono text-primary break-all">{r.address}</td>
+                  <td className="px-4 py-2">
+                    <button onClick={() => toggleReveal(i)} className="font-mono text-left break-all">
+                      {revealedKeys.has(i) ? (
+                        <span className="text-destructive">{r.privateKey}</span>
+                      ) : (
+                        <span className="text-muted-foreground">●●●●●●●● click to reveal</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-sm">
+                    {bal.loading ? (
+                      <span className="text-muted-foreground animate-pulse">Checking…</span>
+                    ) : bal.error ? (
+                      <span className="text-destructive font-semibold">Error</span>
+                    ) : bal.value ? (
+                      <span className="text-foreground">{bal.value}</span>
                     ) : (
-                      <span className="text-muted-foreground">●●●●●●●● click to reveal</span>
+                      <button
+                        onClick={() => checkBalance(r.address, r.network)}
+                        className="px-2 py-0.5 rounded bg-accent text-accent-foreground hover:bg-muted transition-colors"
+                      >
+                        Check
+                      </button>
                     )}
-                  </button>
-                </td>
-                <td className="px-4 py-2 text-muted-foreground uppercase">{r.network} {r.addressType}</td>
-                <td className="px-4 py-2">{r.verified ? '✅' : '❌'}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground uppercase">{r.network} {r.addressType}</td>
+                  <td className="px-4 py-2">{r.verified ? '✅' : '❌'}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
