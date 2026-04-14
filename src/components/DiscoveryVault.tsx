@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { FoundAddress } from '@/hooks/useVanityGenerator';
 import { useBalanceChecker } from '@/hooks/useBalanceChecker';
 
@@ -10,6 +10,17 @@ interface Props {
 export default function DiscoveryVault({ results, onClear }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
   const { checkBalance, getBalance } = useBalanceChecker();
+  const checkedRef = useRef<Set<string>>(new Set());
+
+  // Auto-check balance for new results
+  useEffect(() => {
+    results.forEach(r => {
+      if (!checkedRef.current.has(r.address)) {
+        checkedRef.current.add(r.address);
+        checkBalance(r.address, r.network);
+      }
+    });
+  }, [results, checkBalance]);
 
   const toggleReveal = (idx: number) => {
     setRevealedKeys(prev => {
@@ -108,9 +119,17 @@ export default function DiscoveryVault({ results, onClear }: Props) {
             {results.map((r, i) => {
               const bal = getBalance(r.address);
               return (
-                <tr key={i} className="border-b border-border/50 hover:bg-accent/50 transition-colors">
+                <tr key={i} className={`border-b border-border/50 transition-colors ${
+                  bal.value && !bal.value.startsWith('0.0000') && !bal.value.startsWith('0.00000000')
+                    ? 'bg-destructive/20 hover:bg-destructive/30'
+                    : 'hover:bg-accent/50'
+                }`}>
                   <td className="px-4 py-2 text-muted-foreground">{i + 1}</td>
-                  <td className="px-4 py-2 font-mono text-primary break-all">{r.address}</td>
+                  <td className={`px-4 py-2 font-mono break-all ${
+                    bal.value && !bal.value.startsWith('0.0000') && !bal.value.startsWith('0.00000000')
+                      ? 'text-destructive font-bold'
+                      : 'text-primary'
+                  }`}>{r.address}</td>
                   <td className="px-4 py-2">
                     <button onClick={() => toggleReveal(i)} className="font-mono text-left break-all">
                       {revealedKeys.has(i) ? (
@@ -124,16 +143,20 @@ export default function DiscoveryVault({ results, onClear }: Props) {
                     {bal.loading ? (
                       <span className="text-muted-foreground animate-pulse">Checking…</span>
                     ) : bal.error ? (
-                      <span className="text-destructive font-semibold">Error</span>
-                    ) : bal.value ? (
-                      <span className="text-foreground">{bal.value}</span>
-                    ) : (
                       <button
                         onClick={() => checkBalance(r.address, r.network)}
-                        className="px-2 py-0.5 rounded bg-accent text-accent-foreground hover:bg-muted transition-colors"
+                        className="text-destructive font-semibold hover:underline cursor-pointer"
                       >
-                        Check
+                        Error ↻
                       </button>
+                    ) : bal.value ? (
+                      <span className={
+                        !bal.value.startsWith('0.0000') && !bal.value.startsWith('0.00000000')
+                          ? 'text-destructive font-bold text-base'
+                          : 'text-foreground'
+                      }>{bal.value}</span>
+                    ) : (
+                      <span className="text-muted-foreground animate-pulse">Queued…</span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground uppercase">{r.network} {r.addressType}</td>
