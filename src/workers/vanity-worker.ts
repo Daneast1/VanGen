@@ -90,7 +90,7 @@ self.onmessage = (e: MessageEvent) => {
   switch (type) {
     case 'start': {
       running = true;
-      const { network, prefix, addressType } = payload;
+      const { network, prefix, suffix, addressType } = payload;
       let totalAttempts = 0;
       let batchAttempts = 0;
       let lastReport = performance.now();
@@ -113,25 +113,23 @@ self.onmessage = (e: MessageEvent) => {
             batchAttempts++;
             totalAttempts++;
 
-            // Check prefix match
-            let matchTarget: string;
-            let addressToCheck: string;
-
+            // Extract the matchable portion of the address
+            let addressBody: string;
             if (network === 'eth') {
-              matchTarget = prefix.toLowerCase();
-              addressToCheck = address.slice(2).toLowerCase();
+              addressBody = address.slice(2).toLowerCase();
             } else if (addressType === 'bech32') {
-              matchTarget = prefix.toLowerCase();
-              addressToCheck = address.slice(4).toLowerCase();
-            } else if (addressType === 'p2sh') {
-              matchTarget = prefix;
-              addressToCheck = address.slice(1);
+              addressBody = address.slice(4).toLowerCase();
             } else {
-              matchTarget = prefix;
-              addressToCheck = address.slice(1);
+              addressBody = address.slice(1);
             }
 
-            if (matchTarget && addressToCheck.startsWith(matchTarget)) {
+            const prefixTarget = network === 'eth' || addressType === 'bech32' ? (prefix || '').toLowerCase() : (prefix || '');
+            const suffixTarget = network === 'eth' || addressType === 'bech32' ? (suffix || '').toLowerCase() : (suffix || '');
+
+            const prefixMatch = !prefixTarget || addressBody.startsWith(prefixTarget);
+            const suffixMatch = !suffixTarget || addressBody.endsWith(suffixTarget);
+
+            if ((prefixTarget || suffixTarget) && prefixMatch && suffixMatch) {
               // Re-derive to validate
               let reAddress: string;
               if (network === 'btc') {

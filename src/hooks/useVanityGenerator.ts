@@ -12,6 +12,7 @@ export interface FoundAddress {
 interface GeneratorConfig {
   network: 'btc' | 'eth';
   prefix: string;
+  suffix: string;
   addressType: string;
 }
 

@@ -32,6 +32,7 @@ function formatTime(seconds: number): string {
 export default function Index() {
   const [network, setNetwork] = useState<'btc' | 'eth'>('btc');
   const [prefix, setPrefix] = useState('');
+  const [suffix, setSuffix] = useState('');
   const [btcType, setBtcType] = useState('p2pkh');
   const [entropyCount, setEntropyCount] = useState(0);
   const entropyBuffer = useRef<number[]>([]);
@@ -73,22 +74,27 @@ export default function Index() {
 
   const currentType = BTC_TYPES.find(t => t.value === btcType) || BTC_TYPES[0];
   const charsetSize = network === 'eth' ? 16 : currentType.charsetSize;
-  const diff = getDifficulty(prefix, charsetSize);
+  const totalPatternLen = prefix.length + suffix.length;
+  const diff = getDifficulty(totalPatternLen > 0 ? 'x'.repeat(totalPatternLen) : '', charsetSize);
   const eta = gen.hashrate > 0 ? diff.space / gen.hashrate : Infinity;
 
-  const prefixValid = (() => {
-    if (!prefix) return true;
-    if (network === 'eth') return /^[0-9a-fA-F]+$/.test(prefix);
-    if (btcType === 'bech32') return /^[02-9ac-hj-np-z]+$/.test(prefix);
-    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(prefix);
-  })();
-
-  const handleStart = () => {
-    if (!prefix || !prefixValid) return;
-    gen.start({ network, prefix, addressType: network === 'btc' ? btcType : 'eth' });
+  const validateChars = (val: string) => {
+    if (!val) return true;
+    if (network === 'eth') return /^[0-9a-fA-F]+$/.test(val);
+    if (btcType === 'bech32') return /^[02-9ac-hj-np-z]+$/.test(val);
+    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(val);
   };
 
-  const showDifficultyWarning = prefix.length >= 6;
+  const prefixValid = validateChars(prefix);
+  const suffixValid = validateChars(suffix);
+  const hasPattern = prefix.length > 0 || suffix.length > 0;
+
+  const handleStart = () => {
+    if (!hasPattern || !prefixValid || !suffixValid) return;
+    gen.start({ network, prefix, suffix, addressType: network === 'btc' ? btcType : 'eth' });
+  };
+
+  const showDifficultyWarning = totalPatternLen >= 6;
 
   return (
     <div className="relative min-h-screen bg-background">
@@ -147,7 +153,7 @@ export default function Index() {
                 {BTC_TYPES.map(t => (
                   <button
                     key={t.value}
-                    onClick={() => { setBtcType(t.value); setPrefix(''); }}
+                    onClick={() => { setBtcType(t.value); setPrefix(''); setSuffix(''); }}
                     className={`px-3 py-1.5 rounded-md text-xs font-mono transition-all ${
                       btcType === t.value
                         ? 'bg-primary/20 text-primary border border-primary/30'
@@ -161,55 +167,88 @@ export default function Index() {
             </div>
           )}
 
-          {/* Prefix Input */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Desired Prefix
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground font-mono text-sm">
-                {network === 'eth' ? '0x' : currentType.prefix}
-              </span>
-              <input
-                type="text"
-                value={prefix}
-                onChange={e => setPrefix(e.target.value)}
-                placeholder={network === 'eth' ? 'dead, cafe, babe...' : 'abc, xyz...'}
-                disabled={gen.isRunning}
-                className={`flex-1 bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
-                  !prefixValid
-                    ? 'border-destructive focus:ring-destructive'
-                    : isMint
-                      ? 'border-border focus:ring-primary/50'
-                      : 'border-border focus:ring-secondary/50'
-                }`}
-              />
+          {/* Prefix & Suffix Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Prefix */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Desired Prefix
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground font-mono text-sm shrink-0">
+                  {network === 'eth' ? '0x' : currentType.prefix}
+                </span>
+                <input
+                  type="text"
+                  value={prefix}
+                  onChange={e => setPrefix(e.target.value)}
+                  placeholder={network === 'eth' ? 'dead, cafe...' : 'abc...'}
+                  disabled={gen.isRunning}
+                  className={`flex-1 min-w-0 bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
+                    !prefixValid
+                      ? 'border-destructive focus:ring-destructive'
+                      : isMint
+                        ? 'border-border focus:ring-primary/50'
+                        : 'border-border focus:ring-secondary/50'
+                  }`}
+                />
+              </div>
+              {!prefixValid && (
+                <p className="text-destructive text-xs">
+                  Invalid characters for {network === 'eth' ? 'hex' : currentType.charset}
+                </p>
+              )}
             </div>
-            {!prefixValid && (
-              <p className="text-destructive text-xs">
-                Invalid characters for {network === 'eth' ? 'hex' : currentType.charset} encoding
-              </p>
-            )}
-            {network === 'eth' && prefix && (
-              <p className="text-muted-foreground text-xs">
-                Note: Hex prefix is case-insensitive. EIP-55 checksum applied after match.
-              </p>
-            )}
+
+            {/* Suffix */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Desired Suffix
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={suffix}
+                  onChange={e => setSuffix(e.target.value)}
+                  placeholder={network === 'eth' ? 'beef, face...' : 'xyz...'}
+                  disabled={gen.isRunning}
+                  className={`flex-1 min-w-0 bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
+                    !suffixValid
+                      ? 'border-destructive focus:ring-destructive'
+                      : isMint
+                        ? 'border-border focus:ring-primary/50'
+                        : 'border-border focus:ring-secondary/50'
+                  }`}
+                />
+                <span className="text-muted-foreground font-mono text-xs shrink-0">...end</span>
+              </div>
+              {!suffixValid && (
+                <p className="text-destructive text-xs">
+                  Invalid characters for {network === 'eth' ? 'hex' : currentType.charset}
+                </p>
+              )}
+            </div>
           </div>
 
+          {network === 'eth' && (prefix || suffix) && (
+            <p className="text-muted-foreground text-xs">
+              Note: Hex matching is case-insensitive. EIP-55 checksum applied after match.
+            </p>
+          )}
+
           {/* Difficulty Display */}
-          {prefix && prefixValid && (
+          {hasPattern && prefixValid && suffixValid && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Stat label="Search Space" value={diff.display} />
               <Stat label="Charset" value={`${charsetSize} chars`} />
               <Stat label="Est. Time" value={gen.hashrate > 0 ? formatTime(eta) : '—'} />
-              <Stat label="Difficulty" value={`${charsetSize}^${prefix.length}`} />
+              <Stat label="Difficulty" value={`${charsetSize}^${totalPatternLen}`} />
             </div>
           )}
 
           {showDifficultyWarning && (
             <div className="rounded-md bg-destructive/10 border border-destructive/20 px-4 py-2 text-xs text-destructive">
-              ⚠️ Prefix of {prefix.length}+ characters may take extremely long. Consider a shorter prefix.
+              ⚠️ Combined pattern of {totalPatternLen}+ characters may take extremely long. Consider shorter values.
             </div>
           )}
 
@@ -218,7 +257,7 @@ export default function Index() {
             {!gen.isRunning ? (
               <button
                 onClick={handleStart}
-                disabled={!prefix || !prefixValid}
+                disabled={!hasPattern || !prefixValid || !suffixValid}
                 className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
                   isMint
                     ? 'bg-primary text-primary-foreground hover:opacity-90 glow-mint'
