@@ -34,6 +34,7 @@ export default function Index() {
   const [prefix, setPrefix] = useState('');
   const [suffix, setSuffix] = useState('');
   const [btcType, setBtcType] = useState('p2pkh');
+  const [targetAddress, setTargetAddress] = useState('');
   const [entropyCount, setEntropyCount] = useState(0);
   const entropyBuffer = useRef<number[]>([]);
 
@@ -87,11 +88,17 @@ export default function Index() {
 
   const prefixValid = validateChars(prefix);
   const suffixValid = validateChars(suffix);
-  const hasPattern = prefix.length > 0 || suffix.length > 0;
+  const hasPattern = prefix.length > 0 || suffix.length > 0 || targetAddress.length > 0;
 
   const handleStart = () => {
-    if (!hasPattern || !prefixValid || !suffixValid) return;
-    gen.start({ network, prefix, suffix, addressType: network === 'btc' ? btcType : 'eth' });
+    if (!hasPattern || (!targetAddress && (!prefixValid || !suffixValid))) return;
+    gen.start({
+      network,
+      prefix: targetAddress ? '' : prefix,
+      suffix: targetAddress ? '' : suffix,
+      addressType: network === 'btc' ? btcType : 'eth',
+      targetAddress: targetAddress || undefined,
+    });
   };
 
   const showDifficultyWarning = totalPatternLen >= 6;
@@ -121,7 +128,7 @@ export default function Index() {
         <div className="flex justify-center">
           <div className="inline-flex rounded-lg border border-border bg-card p-1 gap-1">
             <button
-              onClick={() => { setNetwork('btc'); setPrefix(''); setSuffix(''); }}
+              onClick={() => { setNetwork('btc'); setPrefix(''); setSuffix(''); setTargetAddress(''); }}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
                 network === 'btc'
                   ? 'bg-primary text-primary-foreground glow-mint'
@@ -131,7 +138,7 @@ export default function Index() {
               ₿ Bitcoin
             </button>
             <button
-              onClick={() => { setNetwork('eth'); setPrefix(''); setSuffix(''); }}
+              onClick={() => { setNetwork('eth'); setPrefix(''); setSuffix(''); setTargetAddress(''); }}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
                 network === 'eth'
                   ? 'bg-secondary text-secondary-foreground glow-blue'
@@ -153,7 +160,7 @@ export default function Index() {
                 {BTC_TYPES.map(t => (
                   <button
                     key={t.value}
-                    onClick={() => { setBtcType(t.value); setPrefix(''); setSuffix(''); }}
+                    onClick={() => { setBtcType(t.value); setPrefix(''); setSuffix(''); setTargetAddress(''); }}
                     className={`px-3 py-1.5 rounded-md text-xs font-mono transition-all ${
                       btcType === t.value
                         ? 'bg-primary/20 text-primary border border-primary/30'
@@ -230,14 +237,38 @@ export default function Index() {
             </div>
           </div>
 
-          {network === 'eth' && (prefix || suffix) && (
+          {/* Target Address */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Target Address <span className="normal-case font-normal">(optional — overrides prefix/suffix)</span>
+            </label>
+            <input
+              type="text"
+              value={targetAddress}
+              onChange={e => setTargetAddress(e.target.value.trim())}
+              placeholder={network === 'eth' ? '0x742d35Cc6634C0532925a3b844Bc9e7595f...' : currentType.prefix + '...'}
+              disabled={gen.isRunning}
+              className={`w-full bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
+                isMint
+                  ? 'border-border focus:ring-primary/50'
+                  : 'border-border focus:ring-secondary/50'
+              }`}
+            />
+            {targetAddress && (
+              <p className="text-muted-foreground text-xs">
+                🎯 Target mode: only this exact address will appear in results when found.
+              </p>
+            )}
+          </div>
+
+          {network === 'eth' && (prefix || suffix) && !targetAddress && (
             <p className="text-muted-foreground text-xs">
               Note: Hex matching is case-insensitive. EIP-55 checksum applied after match.
             </p>
           )}
 
           {/* Difficulty Display */}
-          {hasPattern && prefixValid && suffixValid && (
+          {hasPattern && prefixValid && suffixValid && !targetAddress && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Stat label="Search Space" value={diff.display} />
               <Stat label="Charset" value={`${charsetSize} chars`} />
@@ -246,7 +277,7 @@ export default function Index() {
             </div>
           )}
 
-          {showDifficultyWarning && (
+          {showDifficultyWarning && !targetAddress && (
             <div className="rounded-md bg-destructive/10 border border-destructive/20 px-4 py-2 text-xs text-destructive">
               ⚠️ Combined pattern of {totalPatternLen}+ characters may take extremely long. Consider shorter values.
             </div>
@@ -257,7 +288,7 @@ export default function Index() {
             {!gen.isRunning ? (
               <button
                 onClick={handleStart}
-                disabled={!hasPattern || !prefixValid || !suffixValid}
+                disabled={!hasPattern || (!targetAddress && (!prefixValid || !suffixValid))}
                 className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
                   isMint
                     ? 'bg-primary text-primary-foreground hover:opacity-90 glow-mint'

@@ -90,7 +90,12 @@ self.onmessage = (e: MessageEvent) => {
   switch (type) {
     case 'start': {
       running = true;
-      const { network, prefix, suffix, addressType } = payload;
+      const { network, prefix, suffix, addressType, targetAddress } = payload;
+      const hasTarget = typeof targetAddress === 'string' && targetAddress.length > 0;
+      const targetNormalized = hasTarget
+        ? (network === 'eth' ? targetAddress.toLowerCase() : targetAddress)
+        : '';
+
       const isCaseInsensitive = network === 'eth' || addressType === 'bech32';
       const prefixTarget = isCaseInsensitive ? (prefix || '').toLowerCase() : (prefix || '');
       const suffixTarget = isCaseInsensitive ? (suffix || '').toLowerCase() : (suffix || '');
@@ -127,10 +132,17 @@ self.onmessage = (e: MessageEvent) => {
           batchAttempts++;
           totalAttempts++;
 
-          const body = isCaseInsensitive ? address.slice(sliceStart).toLowerCase() : address.slice(sliceStart);
-
-          if (hasPrefix && !body.startsWith(prefixTarget)) continue;
-          if (hasSuffix && !body.endsWith(suffixTarget)) continue;
+          if (hasTarget) {
+            // Target mode: only match the exact target address
+            const cmp = network === 'eth' ? address.toLowerCase() : address;
+            if (cmp !== targetNormalized) continue;
+          } else if (hasPrefix || hasSuffix) {
+            // Prefix/suffix mode
+            const body = isCaseInsensitive ? address.slice(sliceStart).toLowerCase() : address.slice(sliceStart);
+            if (hasPrefix && !body.startsWith(prefixTarget)) continue;
+            if (hasSuffix && !body.endsWith(suffixTarget)) continue;
+          }
+          // If no target, no prefix, no suffix: every address is a match
 
           const reAddress = isBtc ? deriveBtcAddress(privKey, addressType) : deriveEthAddress(privKey);
           if (reAddress === address) {

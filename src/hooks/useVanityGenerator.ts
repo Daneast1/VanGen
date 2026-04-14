@@ -14,6 +14,7 @@ interface GeneratorConfig {
   prefix: string;
   suffix: string;
   addressType: string;
+  targetAddress?: string;
 }
 
 export function useVanityGenerator() {
