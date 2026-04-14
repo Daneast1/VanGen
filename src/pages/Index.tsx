@@ -36,7 +36,6 @@ export default function Index() {
   const [btcType, setBtcType] = useState('p2pkh');
   const [targetAddress, setTargetAddress] = useState('');
   const [entropyCount, setEntropyCount] = useState(0);
-  const [entropyCount, setEntropyCount] = useState(0);
   const entropyBuffer = useRef<number[]>([]);
 
   const gen = useVanityGenerator();
