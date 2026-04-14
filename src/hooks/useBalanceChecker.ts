@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 type BalanceState = {
   value: string | null;
@@ -8,36 +8,50 @@ type BalanceState = {
 
 export function useBalanceChecker() {
   const [balances, setBalances] = useState<Map<string, BalanceState>>(new Map());
+  const queueRef = useRef<{ address: string; network: 'btc' | 'eth' }[]>([]);
+  const processingRef = useRef(false);
 
-  const checkBalance = useCallback(async (address: string, network: 'btc' | 'eth') => {
-    setBalances(prev => {
-      const next = new Map(prev);
-      next.set(address, { value: null, loading: true, error: false });
-      return next;
-    });
+  const processQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
 
-    try {
-      let balance: string;
+    while (queueRef.current.length > 0) {
+      const item = queueRef.current.shift()!;
+      setBalances(prev => {
+        const next = new Map(prev);
+        next.set(item.address, { value: null, loading: true, error: false });
+        return next;
+      });
 
-      if (network === 'eth') {
-        balance = await fetchEthBalance(address);
-      } else {
-        balance = await fetchBtcBalance(address);
+      try {
+        const balance = item.network === 'eth'
+          ? await fetchEthBalance(item.address)
+          : await fetchBtcBalance(item.address);
+
+        setBalances(prev => {
+          const next = new Map(prev);
+          next.set(item.address, { value: balance, loading: false, error: false });
+          return next;
+        });
+      } catch {
+        setBalances(prev => {
+          const next = new Map(prev);
+          next.set(item.address, { value: null, loading: false, error: true });
+          return next;
+        });
       }
 
-      setBalances(prev => {
-        const next = new Map(prev);
-        next.set(address, { value: balance, loading: false, error: false });
-        return next;
-      });
-    } catch {
-      setBalances(prev => {
-        const next = new Map(prev);
-        next.set(address, { value: null, loading: false, error: true });
-        return next;
-      });
+      // Rate limit: 200ms between requests
+      await new Promise(r => setTimeout(r, 200));
     }
+
+    processingRef.current = false;
   }, []);
+
+  const checkBalance = useCallback((address: string, network: 'btc' | 'eth') => {
+    queueRef.current.push({ address, network });
+    processQueue();
+  }, [processQueue]);
 
   const getBalance = useCallback((address: string): BalanceState => {
     return balances.get(address) || { value: null, loading: false, error: false };
