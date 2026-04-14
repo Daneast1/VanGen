@@ -108,10 +108,11 @@ self.onmessage = (e: MessageEvent) => {
       let batchAttempts = 0;
       let lastReport = performance.now();
 
-      const loop = () => {
+      // Use MessageChannel to avoid background-tab throttling of setTimeout
+      const channel = new MessageChannel();
+      channel.port2.onmessage = () => {
         if (!running) return;
 
-        // Larger batch = less setTimeout overhead, more throughput
         const batchSize = 3000;
         for (let i = 0; i < batchSize; i++) {
           const privKey = generatePrivateKey();
@@ -126,13 +127,11 @@ self.onmessage = (e: MessageEvent) => {
           batchAttempts++;
           totalAttempts++;
 
-          // Fast match using pre-computed values
           const body = isCaseInsensitive ? address.slice(sliceStart).toLowerCase() : address.slice(sliceStart);
 
           if (hasPrefix && !body.startsWith(prefixTarget)) continue;
           if (hasSuffix && !body.endsWith(suffixTarget)) continue;
 
-          // Found a match — verify by re-deriving
           const reAddress = isBtc ? deriveBtcAddress(privKey, addressType) : deriveEthAddress(privKey);
           if (reAddress === address) {
             self.postMessage({
@@ -163,7 +162,7 @@ self.onmessage = (e: MessageEvent) => {
           lastReport = now;
         }
 
-        setTimeout(loop, 0);
+        channel.port1.postMessage(null);
       };
 
       loop();
