@@ -91,6 +91,19 @@ self.onmessage = (e: MessageEvent) => {
     case 'start': {
       running = true;
       const { network, prefix, suffix, addressType } = payload;
+      const isCaseInsensitive = network === 'eth' || addressType === 'bech32';
+      const prefixTarget = isCaseInsensitive ? (prefix || '').toLowerCase() : (prefix || '');
+      const suffixTarget = isCaseInsensitive ? (suffix || '').toLowerCase() : (suffix || '');
+      const hasPrefix = prefixTarget.length > 0;
+      const hasSuffix = suffixTarget.length > 0;
+      const isBtc = network === 'btc';
+
+      // Pre-compute slice offset for address body extraction
+      let sliceStart: number;
+      if (!isBtc) sliceStart = 2;        // '0x'
+      else if (addressType === 'bech32') sliceStart = 4; // 'bc1q'
+      else sliceStart = 1;               // '1' or '3'
+
       let totalAttempts = 0;
       let batchAttempts = 0;
       let lastReport = performance.now();
@@ -98,67 +111,46 @@ self.onmessage = (e: MessageEvent) => {
       const loop = () => {
         if (!running) return;
 
-        const batchSize = 500;
+        // Larger batch = less setTimeout overhead, more throughput
+        const batchSize = 3000;
         for (let i = 0; i < batchSize; i++) {
+          const privKey = generatePrivateKey();
+          let address: string;
+
           try {
-            const privKey = generatePrivateKey();
-            let address: string;
-
-            if (network === 'btc') {
-              address = deriveBtcAddress(privKey, addressType);
-            } else {
-              address = deriveEthAddress(privKey);
-            }
-
-            batchAttempts++;
-            totalAttempts++;
-
-            // Extract the matchable portion of the address
-            let addressBody: string;
-            if (network === 'eth') {
-              addressBody = address.slice(2).toLowerCase();
-            } else if (addressType === 'bech32') {
-              addressBody = address.slice(4).toLowerCase();
-            } else {
-              addressBody = address.slice(1);
-            }
-
-            const prefixTarget = network === 'eth' || addressType === 'bech32' ? (prefix || '').toLowerCase() : (prefix || '');
-            const suffixTarget = network === 'eth' || addressType === 'bech32' ? (suffix || '').toLowerCase() : (suffix || '');
-
-            const prefixMatch = !prefixTarget || addressBody.startsWith(prefixTarget);
-            const suffixMatch = !suffixTarget || addressBody.endsWith(suffixTarget);
-
-            if ((prefixTarget || suffixTarget) && prefixMatch && suffixMatch) {
-              // Re-derive to validate
-              let reAddress: string;
-              if (network === 'btc') {
-                reAddress = deriveBtcAddress(privKey, addressType);
-              } else {
-                reAddress = deriveEthAddress(privKey);
-              }
-
-              if (reAddress === address) {
-                self.postMessage({
-                  type: 'found',
-                  payload: {
-                    address,
-                    privateKey: bytesToHex(privKey),
-                    network,
-                    addressType,
-                    verified: true,
-                    timestamp: Date.now(),
-                  },
-                });
-              }
-            }
+            address = isBtc ? deriveBtcAddress(privKey, addressType) : deriveEthAddress(privKey);
           } catch {
-            // Invalid key, skip
+            continue;
+          }
+
+          batchAttempts++;
+          totalAttempts++;
+
+          // Fast match using pre-computed values
+          const body = isCaseInsensitive ? address.slice(sliceStart).toLowerCase() : address.slice(sliceStart);
+
+          if (hasPrefix && !body.startsWith(prefixTarget)) continue;
+          if (hasSuffix && !body.endsWith(suffixTarget)) continue;
+
+          // Found a match — verify by re-deriving
+          const reAddress = isBtc ? deriveBtcAddress(privKey, addressType) : deriveEthAddress(privKey);
+          if (reAddress === address) {
+            self.postMessage({
+              type: 'found',
+              payload: {
+                address,
+                privateKey: bytesToHex(privKey),
+                network,
+                addressType,
+                verified: true,
+                timestamp: Date.now(),
+              },
+            });
           }
         }
 
         const now = performance.now();
-        if (now - lastReport >= 500) {
+        if (now - lastReport >= 1000) {
           const elapsed = (now - lastReport) / 1000;
           self.postMessage({
             type: 'progress',
