@@ -1,6 +1,6 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { ripemd160 } from '@noble/hashes/ripemd160.js';
+import { ripemd160 } from '@noble/hashes/legacy.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
 import { bech32 } from 'bech32';
 import bs58 from 'bs58';
