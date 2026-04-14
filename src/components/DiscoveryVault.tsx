@@ -14,13 +14,15 @@ export default function DiscoveryVault({ results, onClear }: Props) {
 
   // Auto-check balance for new results
   useEffect(() => {
-    results.forEach(r => {
+    for (const r of results) {
       if (!checkedRef.current.has(r.address)) {
         checkedRef.current.add(r.address);
         checkBalance(r.address, r.network);
       }
-    });
+    }
   }, [results, checkBalance]);
+
+  // All hooks are above — no early returns before this point
 
   const toggleReveal = (idx: number) => {
     setRevealedKeys(prev => {

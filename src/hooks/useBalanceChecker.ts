@@ -6,52 +6,52 @@ type BalanceState = {
   error: boolean;
 };
 
+const MAX_CONCURRENT = 5;
+
 export function useBalanceChecker() {
   const [balances, setBalances] = useState<Map<string, BalanceState>>(new Map());
   const queueRef = useRef<{ address: string; network: 'btc' | 'eth' }[]>([]);
-  const processingRef = useRef(false);
+  const activeRef = useRef(0);
 
-  const processQueue = useCallback(async () => {
-    if (processingRef.current) return;
-    processingRef.current = true;
+  const processNext = useCallback(async () => {
+    if (activeRef.current >= MAX_CONCURRENT || queueRef.current.length === 0) return;
 
-    while (queueRef.current.length > 0) {
-      const item = queueRef.current.shift()!;
+    const item = queueRef.current.shift()!;
+    activeRef.current++;
+
+    setBalances(prev => {
+      const next = new Map(prev);
+      next.set(item.address, { value: null, loading: true, error: false });
+      return next;
+    });
+
+    try {
+      const balance = item.network === 'eth'
+        ? await fetchEthBalance(item.address)
+        : await fetchBtcBalance(item.address);
+
       setBalances(prev => {
         const next = new Map(prev);
-        next.set(item.address, { value: null, loading: true, error: false });
+        next.set(item.address, { value: balance, loading: false, error: false });
         return next;
       });
-
-      try {
-        const balance = item.network === 'eth'
-          ? await fetchEthBalance(item.address)
-          : await fetchBtcBalance(item.address);
-
-        setBalances(prev => {
-          const next = new Map(prev);
-          next.set(item.address, { value: balance, loading: false, error: false });
-          return next;
-        });
-      } catch {
-        setBalances(prev => {
-          const next = new Map(prev);
-          next.set(item.address, { value: null, loading: false, error: true });
-          return next;
-        });
-      }
-
-      // Rate limit: 200ms between requests
-      await new Promise(r => setTimeout(r, 200));
+    } catch {
+      setBalances(prev => {
+        const next = new Map(prev);
+        next.set(item.address, { value: null, loading: false, error: true });
+        return next;
+      });
     }
 
-    processingRef.current = false;
+    activeRef.current--;
+    // Process next items
+    processNext();
   }, []);
 
   const checkBalance = useCallback((address: string, network: 'btc' | 'eth') => {
     queueRef.current.push({ address, network });
-    processQueue();
-  }, [processQueue]);
+    processNext();
+  }, [processNext]);
 
   const getBalance = useCallback((address: string): BalanceState => {
     return balances.get(address) || { value: null, loading: false, error: false };
@@ -61,7 +61,6 @@ export function useBalanceChecker() {
 }
 
 async function fetchEthBalance(address: string): Promise<string> {
-  // Try Alchemy first (free tier), fallback to Blockcypher
   const errors: string[] = [];
 
   try {
@@ -86,7 +85,6 @@ async function fetchEthBalance(address: string): Promise<string> {
     errors.push(`Alchemy: ${e}`);
   }
 
-  // Fallback: Blockcypher
   try {
     const res = await fetch(`https://api.blockcypher.com/v1/eth/main/addrs/${address}/balance`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -105,7 +103,6 @@ async function fetchEthBalance(address: string): Promise<string> {
 async function fetchBtcBalance(address: string): Promise<string> {
   const errors: string[] = [];
 
-  // Blockcypher for BTC
   try {
     const res = await fetch(`https://api.blockcypher.com/v1/btc/main/addrs/${address}/balance`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
