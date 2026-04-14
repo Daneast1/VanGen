@@ -9,6 +9,7 @@ interface Props {
 
 export default function DiscoveryVault({ results, onClear }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
+  const { checkBalance, getBalance } = useBalanceChecker();
 
   const toggleReveal = (idx: number) => {
     setRevealedKeys(prev => {
