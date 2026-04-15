@@ -408,28 +408,52 @@ export default function Index() {
           <div className="flex items-center gap-2">
             <span className="text-sm">🌧️ Entropy Rain</span>
             <span className="text-xs text-muted-foreground">
-              Move your mouse, type below, or use both to inject entropy
+              Type a number to inject that many entropy events, or move your mouse
             </span>
           </div>
-          <textarea
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-            rows={2}
-            placeholder="Type anything here to add entropy… mash your keyboard, paste random text, etc."
-            onChange={(e) => {
-              const text = e.target.value;
-              if (!text) return;
-              const encoder = new TextEncoder();
-              const bytes = encoder.encode(text);
-              // Mix each byte with timestamp for extra unpredictability
-              const mixed: number[] = [];
-              for (let i = 0; i < bytes.length; i++) {
-                mixed.push((bytes[i] ^ (Date.now() & 0xff) ^ (i * 37)) & 0xff);
-              }
-              const data = new Uint8Array(mixed);
-              gen.injectEntropy(data.buffer);
-              setEntropyCount(prev => prev + mixed.length);
-            }}
-          />
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min={1}
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder="e.g. 3007"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseInt((e.target as HTMLInputElement).value, 10);
+                  if (!val || val <= 0) return;
+                  // Generate `val` random entropy bytes and inject them
+                  const data = new Uint8Array(val);
+                  crypto.getRandomValues(data);
+                  // Mix with timestamp for extra unpredictability
+                  for (let i = 0; i < data.length; i++) {
+                    data[i] = (data[i] ^ (Date.now() & 0xff) ^ (i * 37)) & 0xff;
+                  }
+                  gen.injectEntropy(data.buffer);
+                  setEntropyCount(prev => prev + val);
+                  (e.target as HTMLInputElement).value = '';
+                }
+              }}
+            />
+            <button
+              type="button"
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${isMint ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'}`}
+              onClick={(e) => {
+                const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                const val = parseInt(input.value, 10);
+                if (!val || val <= 0) return;
+                const data = new Uint8Array(val);
+                crypto.getRandomValues(data);
+                for (let i = 0; i < data.length; i++) {
+                  data[i] = (data[i] ^ (Date.now() & 0xff) ^ (i * 37)) & 0xff;
+                }
+                gen.injectEntropy(data.buffer);
+                setEntropyCount(prev => prev + val);
+                input.value = '';
+              }}
+            >
+              Inject
+            </button>
+          </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-500 ${isMint ? 'bg-primary' : 'bg-secondary'}`}
