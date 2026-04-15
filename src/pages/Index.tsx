@@ -404,13 +404,32 @@ export default function Index() {
         )}
 
         {/* ── Entropy Rain ────────────────────────────────────────────────── */}
-        <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2">
             <span className="text-sm">🌧️ Entropy Rain</span>
             <span className="text-xs text-muted-foreground">
-              Move your mouse or type to inject additional entropy into key generation
+              Move your mouse, type below, or use both to inject entropy
             </span>
           </div>
+          <textarea
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+            rows={2}
+            placeholder="Type anything here to add entropy… mash your keyboard, paste random text, etc."
+            onChange={(e) => {
+              const text = e.target.value;
+              if (!text) return;
+              const encoder = new TextEncoder();
+              const bytes = encoder.encode(text);
+              // Mix each byte with timestamp for extra unpredictability
+              const mixed: number[] = [];
+              for (let i = 0; i < bytes.length; i++) {
+                mixed.push((bytes[i] ^ (Date.now() & 0xff) ^ (i * 37)) & 0xff);
+              }
+              const data = new Uint8Array(mixed);
+              gen.injectEntropy(data.buffer);
+              setEntropyCount(prev => prev + mixed.length);
+            }}
+          />
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-500 ${isMint ? 'bg-primary' : 'bg-secondary'}`}
