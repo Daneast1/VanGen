@@ -375,7 +375,7 @@ export default function Index() {
           <div className="flex items-center gap-2">
             <span className="text-sm">🌧️ Entropy Rain</span>
             <span className="text-xs text-muted-foreground">
-              Type a number to inject that many entropy events, or move your mouse
+              Type a number and inject that many entropy events
             </span>
           </div>
           <div className="flex gap-2">
