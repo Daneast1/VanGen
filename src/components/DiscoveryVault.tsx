@@ -113,6 +113,7 @@ export default function DiscoveryVault({ results, onClear }: Props) {
               <th className="px-4 py-2 text-left">Address</th>
               <th className="px-4 py-2 text-left">Private Key</th>
               <th className="px-4 py-2 text-left">Balance</th>
+              <th className="px-4 py-2 text-left">TX</th>
               <th className="px-4 py-2 text-left">Type</th>
               <th className="px-4 py-2 text-left">✓</th>
             </tr>
@@ -159,6 +160,19 @@ export default function DiscoveryVault({ results, onClear }: Props) {
                       }>{bal.value}</span>
                     ) : (
                       <span className="text-muted-foreground animate-pulse">Queued…</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-sm">
+                    {bal.txLoading ? (
+                      <span className="text-muted-foreground animate-pulse">…</span>
+                    ) : bal.txError ? (
+                      <span className="text-destructive">Err</span>
+                    ) : bal.txCount !== null ? (
+                      <span className={bal.txCount > 0 ? 'text-foreground font-semibold' : 'text-muted-foreground'}>
+                        {bal.txCount.toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">–</span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground uppercase">{r.network} {r.addressType}</td>
