@@ -474,7 +474,7 @@ export default function Index() {
 
         {/* ── DUNE QUERY TAB ───────────────────────────────────────────── */}
         {activeTab === 'dune' && (
-          <DuneQuery vaultResults={gen.results} />
+          <DuneQuery />
         )}
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
