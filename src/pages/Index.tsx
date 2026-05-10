@@ -161,6 +161,16 @@ export default function Index() {
             >
               🔍 Vulnerability Scanner
             </button>
+            <button
+              onClick={() => setActiveTab('dune')}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                activeTab === 'dune'
+                  ? 'bg-primary text-primary-foreground glow-mint'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              📊 Dune Query
+            </button>
           </div>
         </div>
 
