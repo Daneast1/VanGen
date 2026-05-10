@@ -472,6 +472,11 @@ export default function Index() {
           </div>
         )}
 
+        {/* ── DUNE QUERY TAB ───────────────────────────────────────────── */}
+        {activeTab === 'dune' && (
+          <DuneQuery vaultResults={gen.results} />
+        )}
+
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <footer className="text-center text-xs text-muted-foreground space-y-1 pb-8">
           <p className="font-mono">
