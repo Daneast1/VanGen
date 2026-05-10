@@ -44,7 +44,7 @@ function formatHashrate(h: number): string {
 
 export default function Index() {
   // ── TAB STATE ────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'vanity' | 'scanner'>('vanity');
+  const [activeTab, setActiveTab] = useState<'vanity' | 'scanner' | 'dune'>('vanity');
 
   // ── VANITY GENERATOR STATE ───────────────────────────────────────────────
   const [network, setNetwork] = useState<'btc' | 'eth'>('btc');
