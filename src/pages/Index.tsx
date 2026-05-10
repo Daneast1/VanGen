@@ -3,6 +3,7 @@ import { useVanityGenerator } from '@/hooks/useVanityGenerator';
 import PulseBackground from '@/components/PulseBackground';
 import DiscoveryVault from '@/components/DiscoveryVault';
 import VulnerabilityScanner from '@/components/VulnerabilityScanner';
+import DuneQuery from '@/components/DuneQuery';
 
 const BTC_TYPES = [
   { value: 'p2pkh', label: 'Legacy (P2PKH)', prefix: '1', charset: 'Base58', charsetSize: 58 },
