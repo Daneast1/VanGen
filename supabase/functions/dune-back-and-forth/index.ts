@@ -36,7 +36,7 @@ async function executeQuery(queryId: number, apiKey: string) {
     }
   }
 
-  const results = await fetch(`${DUNE_API}/execution/${execution_id}/results`, {
+  const results = await fetch(`${DUNE_API}/execution/${execution_id}/results?limit=100`, {
     headers: { "X-Dune-API-Key": apiKey },
   });
   if (!results.ok) {
