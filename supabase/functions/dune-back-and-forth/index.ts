@@ -14,7 +14,10 @@ async function executeQuery(queryId: number, apiKey: string) {
       "X-Dune-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ performance: "medium" }),
+    body: JSON.stringify({
+      performance: "medium",
+      query_parameters: { days: "7" },
+    }),
   });
   if (!exec.ok) {
     throw new Error(`Dune execute failed [${exec.status}]: ${await exec.text()}`);
@@ -33,7 +36,7 @@ async function executeQuery(queryId: number, apiKey: string) {
     }
   }
 
-  const results = await fetch(`${DUNE_API}/execution/${execution_id}/results`, {
+  const results = await fetch(`${DUNE_API}/execution/${execution_id}/results?limit=100`, {
     headers: { "X-Dune-API-Key": apiKey },
   });
   if (!results.ok) {
