@@ -14,7 +14,10 @@ async function executeQuery(queryId: number, apiKey: string) {
       "X-Dune-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ performance: "medium" }),
+    body: JSON.stringify({
+      performance: "medium",
+      query_parameters: { days: "7" },
+    }),
   });
   if (!exec.ok) {
     throw new Error(`Dune execute failed [${exec.status}]: ${await exec.text()}`);
