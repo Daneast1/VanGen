@@ -7,6 +7,10 @@ type BalanceState = {
   txCount: number | null;
   txLoading: boolean;
   txError: boolean;
+  lastTxTime: string | null;       // ISO string of last tx
+  lastTxCounterparty: string | null; // address most recently sent-to / received-from
+  lastTxLoading: boolean;
+  lastTxError: boolean;
 };
 
 const MAX_CONCURRENT = 3;
@@ -14,6 +18,7 @@ const MAX_CONCURRENT = 3;
 const EMPTY: BalanceState = {
   value: null, loading: false, error: false,
   txCount: null, txLoading: false, txError: false,
+  lastTxTime: null, lastTxCounterparty: null, lastTxLoading: false, lastTxError: false,
 };
 
 export function useBalanceChecker() {
@@ -35,7 +40,7 @@ export function useBalanceChecker() {
       const item = queueRef.current.shift()!;
       activeRef.current++;
 
-      update(item.address, { loading: true, error: false, txLoading: true, txError: false });
+      update(item.address, { loading: true, error: false, txLoading: true, txError: false, lastTxLoading: true, lastTxError: false });
 
       (async () => {
         // Balance
@@ -55,6 +60,20 @@ export function useBalanceChecker() {
           update(item.address, { txCount: tx, txLoading: false, txError: false });
         } catch {
           update(item.address, { txCount: null, txLoading: false, txError: true });
+        }
+        // Last tx info
+        try {
+          const last = item.network === 'eth'
+            ? await fetchEthLastTx(item.address)
+            : await fetchBtcLastTx(item.address);
+          update(item.address, {
+            lastTxTime: last.time,
+            lastTxCounterparty: last.counterparty,
+            lastTxLoading: false,
+            lastTxError: false,
+          });
+        } catch {
+          update(item.address, { lastTxLoading: false, lastTxError: true });
         }
         activeRef.current--;
         drain();
@@ -205,6 +224,51 @@ async function fetchBtcTxCount(address: string): Promise<number> {
   }
 
   throw new Error(`All BTC tx providers failed: ${errors.join('; ')}`);
+}
+
+// ── Last transaction info ──────────────────────────────────────────────────
+type LastTx = { time: string | null; counterparty: string | null };
+
+async function fetchBtcLastTx(address: string): Promise<LastTx> {
+  // Blockstream — list of recent confirmed txs (newest first)
+  const res = await fetchWithTimeout(`https://blockstream.info/api/address/${address}/txs`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const txs = await res.json() as Array<{
+    status?: { block_time?: number };
+    vin: Array<{ prevout?: { scriptpubkey_address?: string } }>;
+    vout: Array<{ scriptpubkey_address?: string }>;
+  }>;
+  if (!Array.isArray(txs) || txs.length === 0) return { time: null, counterparty: null };
+  const tx = txs[0];
+  const blockTime = tx.status?.block_time;
+  const time = blockTime ? new Date(blockTime * 1000).toISOString() : null;
+
+  // Determine if this address sent or received, then pick counterparty
+  const inputAddrs = tx.vin.map(i => i.prevout?.scriptpubkey_address).filter(Boolean) as string[];
+  const isSender = inputAddrs.includes(address);
+  let counterparty: string | null = null;
+  if (isSender) {
+    const out = tx.vout.find(o => o.scriptpubkey_address && o.scriptpubkey_address !== address);
+    counterparty = out?.scriptpubkey_address ?? null;
+  } else {
+    counterparty = inputAddrs.find(a => a !== address) ?? inputAddrs[0] ?? null;
+  }
+  return { time, counterparty };
+}
+
+async function fetchEthLastTx(address: string): Promise<LastTx> {
+  // Use Blockscout (no API key required)
+  const url = `https://eth.blockscout.com/api?module=account&action=txlist&address=${address}&sort=desc&page=1&offset=1`;
+  const res = await fetchWithTimeout(url, undefined, 8000);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const tx = Array.isArray(data?.result) ? data.result[0] : null;
+  if (!tx) return { time: null, counterparty: null };
+  const ts = Number(tx.timeStamp);
+  const time = Number.isFinite(ts) ? new Date(ts * 1000).toISOString() : null;
+  const lower = address.toLowerCase();
+  const counterparty = (tx.from && tx.from.toLowerCase() === lower) ? tx.to : tx.from;
+  return { time, counterparty: counterparty ?? null };
 }
 
 function formatWeiToEth(wei: bigint): string {
