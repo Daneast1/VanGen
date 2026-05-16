@@ -7,6 +7,10 @@ type BalanceState = {
   txCount: number | null;
   txLoading: boolean;
   txError: boolean;
+  lastTxTime: string | null;       // ISO string of last tx
+  lastTxCounterparty: string | null; // address most recently sent-to / received-from
+  lastTxLoading: boolean;
+  lastTxError: boolean;
 };
 
 const MAX_CONCURRENT = 3;
@@ -14,6 +18,7 @@ const MAX_CONCURRENT = 3;
 const EMPTY: BalanceState = {
   value: null, loading: false, error: false,
   txCount: null, txLoading: false, txError: false,
+  lastTxTime: null, lastTxCounterparty: null, lastTxLoading: false, lastTxError: false,
 };
 
 export function useBalanceChecker() {
