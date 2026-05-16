@@ -40,7 +40,7 @@ export function useBalanceChecker() {
       const item = queueRef.current.shift()!;
       activeRef.current++;
 
-      update(item.address, { loading: true, error: false, txLoading: true, txError: false });
+      update(item.address, { loading: true, error: false, txLoading: true, txError: false, lastTxLoading: true, lastTxError: false });
 
       (async () => {
         // Balance
@@ -60,6 +60,20 @@ export function useBalanceChecker() {
           update(item.address, { txCount: tx, txLoading: false, txError: false });
         } catch {
           update(item.address, { txCount: null, txLoading: false, txError: true });
+        }
+        // Last tx info
+        try {
+          const last = item.network === 'eth'
+            ? await fetchEthLastTx(item.address)
+            : await fetchBtcLastTx(item.address);
+          update(item.address, {
+            lastTxTime: last.time,
+            lastTxCounterparty: last.counterparty,
+            lastTxLoading: false,
+            lastTxError: false,
+          });
+        } catch {
+          update(item.address, { lastTxLoading: false, lastTxError: true });
         }
         activeRef.current--;
         drain();
