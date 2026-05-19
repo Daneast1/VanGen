@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Resolves the missing specifier issue by routing curve queries directly to the installed package
+      "@noble/curves/secp256k1": "@noble/secp256k1",
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
