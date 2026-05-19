@@ -50,8 +50,8 @@ export function useSweeper() {
     sweepEntry: PendingSweep,
   ): Promise<SweepResult> => {
     const { secp256k1 } = await import('@noble/curves/secp256k1');
-    const { sha256 } = await import('@noble/hashes/sha256');
-    const { ripemd160 } = await import('@noble/hashes/ripemd160');
+    // FIXED: Combined legacy deep subpath imports into the package root
+    const { sha256, ripemd160 } = await import('@noble/hashes');
     const { default: bs58Lib } = await import('bs58');
 
     const privBytes = hexToBytes(privateKey);
