@@ -14,14 +14,14 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      // FORCE any subpath specifier to look directly at the main entry point file
-      "@noble/hashes/sha256": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
-      "@noble/hashes/ripemd160": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
-      "@noble/hashes/sha3": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
-      "@noble/hashes/sha2": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      {
+        // Matches "@noble/hashes/sha256", "@noble/hashes/sha2", etc., and routes them safely
+        find: /^@noble\/hashes\/(.*)$/,
+        replacement: "@noble/hashes"
+      }
+    ],
     dedupe: [
       "react",
       "react-dom",
