@@ -49,14 +49,14 @@ export function useSweeper() {
     feeRate: number | undefined,
     sweepEntry: PendingSweep,
   ): Promise<SweepResult> => {
-    const { secp256k1 } = await import('@noble/curves/secp256k1');
-    // FIXED: Combined legacy deep subpath imports into the package root
-    const { sha256, ripemd160 } = await import('@noble/hashes');
+    const { secp256k1 } = await import('@noble/curves/secp256k1.js');
+    const { sha256 } = await import('@noble/hashes/sha2.js');
+    const { ripemd160 } = await import('@noble/hashes/legacy.js');
     const { default: bs58Lib } = await import('bs58');
 
     const privBytes = hexToBytes(privateKey);
-    const pubPoint = secp256k1.ProjectivePoint.fromPrivateKey(privBytes);
-    const pubCompressed = pubPoint.toRawBytes(true);
+    // @noble/curves v2: use getPublicKey() instead of ProjectivePoint
+    const pubCompressed = secp256k1.getPublicKey(privBytes, true);
 
     const sha = sha256(pubCompressed);
     const h160 = ripemd160(sha);
@@ -110,9 +110,9 @@ export function useSweeper() {
       });
     }
 
-    psbt.addOutput({ script: bitcoin.address.toOutputScript(destinationAddress), value: amountToSend });
+    psbt.addOutput({ script: bitcoin.address.toOutputScript(destinationAddress), value: BigInt(amountToSend) });
     if (keepDust > 0) {
-      psbt.addOutput({ script: bitcoin.address.toOutputScript(sourceAddress), value: keepDust });
+      psbt.addOutput({ script: bitcoin.address.toOutputScript(sourceAddress), value: BigInt(keepDust) });
     }
 
     for (let i = 0; i < utxos.length; i++) psbt.signInput(i, keyPair);
