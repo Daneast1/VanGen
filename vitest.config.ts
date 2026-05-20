@@ -11,6 +11,14 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    // FIXED: Changed from object syntax to array syntax to support the RegExp match wrapper
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      {
+        // Intercepts deep subpath requests during test executions
+        find: /^@noble\/hashes\/(.*)$/,
+        replacement: "@noble/hashes"
+      }
+    ],
   },
 });
