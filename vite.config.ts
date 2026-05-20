@@ -16,11 +16,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
-      {
-        // Matches "@noble/hashes/sha256", "@noble/hashes/sha2", etc., and routes them safely
-        find: /^@noble\/hashes\/(.*)$/,
-        replacement: "@noble/hashes"
-      }
     ],
     dedupe: [
       "react",
