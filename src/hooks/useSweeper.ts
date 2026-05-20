@@ -110,9 +110,9 @@ export function useSweeper() {
       });
     }
 
-    psbt.addOutput({ script: bitcoin.address.toOutputScript(destinationAddress), value: amountToSend });
+    psbt.addOutput({ script: bitcoin.address.toOutputScript(destinationAddress), value: BigInt(amountToSend) });
     if (keepDust > 0) {
-      psbt.addOutput({ script: bitcoin.address.toOutputScript(sourceAddress), value: keepDust });
+      psbt.addOutput({ script: bitcoin.address.toOutputScript(sourceAddress), value: BigInt(keepDust) });
     }
 
     for (let i = 0; i < utxos.length; i++) psbt.signInput(i, keyPair);
