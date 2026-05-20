@@ -1,4 +1,3 @@
-cat << 'EOF' > vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -17,11 +16,19 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@noble/curves/secp256k1": "@noble/secp256k1",
-      "@noble/hashes/sha256": "@noble/hashes",
+      // FORCE any subpath specifier to look directly at the main entry point file
+      "@noble/hashes/sha256": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
+      "@noble/hashes/ripemd160": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
+      "@noble/hashes/sha3": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
+      "@noble/hashes/sha2": path.resolve(__dirname, "node_modules/@noble/hashes/esm/index.js"),
     },
-    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
+    dedupe: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "@tanstack/react-query",
+      "@tanstack/query-core"
+    ],
   },
 }));
-EOF
-echo "✅ Completely updated vite.config.ts with the full resolution config mapping."
