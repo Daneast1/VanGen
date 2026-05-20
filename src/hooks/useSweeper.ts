@@ -55,8 +55,8 @@ export function useSweeper() {
     const { default: bs58Lib } = await import('bs58');
 
     const privBytes = hexToBytes(privateKey);
-    const pubPoint = secp256k1.ProjectivePoint.fromPrivateKey(privBytes);
-    const pubCompressed = pubPoint.toRawBytes(true);
+    // @noble/curves v2: use getPublicKey() instead of ProjectivePoint
+    const pubCompressed = secp256k1.getPublicKey(privBytes, true);
 
     const sha = sha256(pubCompressed);
     const h160 = ripemd160(sha);
