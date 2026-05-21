@@ -28,7 +28,7 @@ export function useZKBreaker() {
       for (const result of scanResults) {
         if (result.network === 'eth') {
           // Check if address has transactions with ZK contracts
-          const apiKey = process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || '';
+          const apiKey = import.meta.env.VITE_ETHERSCAN_API_KEY || '';
           for (const zk of zkProtocols) {
             try {
               const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${result.address}&contractaddress=${zk.contract}&sort=desc&apikey=${apiKey}`;
