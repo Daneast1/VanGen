@@ -9,16 +9,21 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Allow crypto/wasm libs a bit more time on cold start
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
   resolve: {
-    // FIXED: Changed from object syntax to array syntax to support the RegExp match wrapper
+    // Array syntax is required to support the RegExp alias below.
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
+      // Some @noble/hashes deep subpath imports (e.g. "@noble/hashes/sha2.js")
+      // are not resolvable in the jsdom test runtime. Collapse them to the
+      // package root, which re-exports everything we need.
       {
-        // Intercepts deep subpath requests during test executions
-        find: /^@noble\/hashes\/(.*)$/,
-        replacement: "@noble/hashes"
-      }
+        find: /^@noble\/hashes\/.*$/,
+        replacement: "@noble/hashes",
+      },
     ],
   },
 });
