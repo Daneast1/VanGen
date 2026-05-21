@@ -49,6 +49,11 @@ export function useSweeper() {
     feeRate: number | undefined,
     sweepEntry: PendingSweep,
   ): Promise<SweepResult> => {
+    // Ensure Buffer is available for bitcoinjs-lib in the browser.
+    if (typeof (globalThis as any).Buffer === 'undefined') {
+      const { Buffer } = await import('buffer');
+      (globalThis as any).Buffer = Buffer;
+    }
     const { secp256k1 } = await import('@noble/curves/secp256k1.js');
     const { sha256 } = await import('@noble/hashes/sha2.js');
     const { ripemd160 } = await import('@noble/hashes/legacy.js');
