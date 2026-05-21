@@ -38,7 +38,7 @@ export function useSignatureAnalyzer() {
         return sigs.length > 0 ? sigs : null;
       }
       if (network === 'eth') {
-        const apiKey = process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || '';
+        const apiKey = (import.meta.env.VITE_ETHERSCAN_API_KEY as string | undefined) || '';
         const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${address}&sort=desc&apikey=${apiKey}`;
         const resp = await fetch(url);
         if (!resp.ok) return null;
