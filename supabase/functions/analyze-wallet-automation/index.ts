@@ -335,8 +335,14 @@ Classify this wallet now.`;
   }
   const data = await r.json();
   const content = data.choices?.[0]?.message?.content ?? "{}";
-  try { return JSON.parse(content); }
-  catch { return { automationPercent: null, verdict: "Unknown", confidence: "low", topSignals: [], reasoning: content }; }
+  try {
+    const parsed = JSON.parse(content);
+    // Normalise confidence to uppercase for the UI
+    if (typeof parsed.confidence === "string") parsed.confidence = parsed.confidence.toUpperCase();
+    return parsed;
+  } catch {
+    return { automationPercent: null, verdict: "Unknown", confidence: "LOW", topSignals: [], reasoning: content };
+  }
 }
 
 Deno.serve(async (req) => {
