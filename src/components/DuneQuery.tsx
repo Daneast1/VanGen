@@ -21,21 +21,18 @@ interface Analysis {
     roundValueRatio: number;
     firstTx: string;
     lastTx: string;
-    // Extended fields (may be present)
     medianGapSec?: number;
     minGapSec?: number;
     maxGapSec?: number;
-    txPerHourDistribution?: number[];
-    offHoursRatio?: number;         // ratio of txs in 00:00–06:00 UTC
-    burstScore?: number;            // how often txs come in tight bursts
-    volumeEntropyScore?: number;    // Shannon entropy of volume buckets
-    selfLoopRatio?: number;         // txs back to same address
+    offHoursRatio?: number;
+    burstScore?: number;
+    volumeEntropyScore?: number;
+    selfLoopRatio?: number;
   } | null;
   ai: {
     automationPercent: number | null;
     verdict: string;
     reasoning: string;
-    // Extended AI fields
     confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
     signals?: AutomationSignal[];
     botType?: string | null;
@@ -47,129 +44,6 @@ interface AutomationSignal {
   weight: 'HIGH' | 'MEDIUM' | 'LOW';
   direction: 'AUTO' | 'MANUAL' | 'NEUTRAL';
   detail: string;
-}
-
-// ─── Enhanced AI Analysis via Anthropic API ──────────────────────────────────
-
-async function runDeepAnalysis(
-  stats: Analysis['stats'],
-  chain: 'btc' | 'eth',
-  address: string,
-  rawAi: Analysis['ai']
-): Promise<Analysis['ai']> {
-  if (!stats) return rawAi;
-
-  const systemPrompt = `You are an elite blockchain forensics expert specializing in identifying automated (bot/script-driven) vs. manually-controlled crypto wallets. You have 10+ years of on-chain behavioral analysis experience and have reviewed millions of wallets across Bitcoin and Ethereum.
-
-Your task: given transaction statistics for a single wallet address, produce a precise automation classification.
-
-## Behavioral Fingerprints You Know Cold
-
-### Strong Automation Indicators (each independently suggests bot):
-1. **Timing regularity**: CV (stddev/mean gap) < 0.25 → highly mechanical cadence
-2. **Sleep hours absent**: off-hours ratio > 0.35 → bot runs 24/7, no human sleep cycle
-3. **Sub-60s gaps**: minGapSec < 60 → human cannot manually sign that fast
-4. **Burst + pause patterns**: tight clusters separated by fixed rest periods = scheduler
-5. **Round value dominance**: roundValueRatio > 0.7 → programmatic amount selection
-6. **Single counterparty concentration**: >80% of txs to one address = automated relay
-7. **High volume with low unique counterparties**: txCount > 50, uniqueCounterparties < 3 = automation
-8. **Volume entropy near zero**: all txs same size = bot with fixed parameters
-
-### Strong Manual Indicators:
-1. **High CV (>1.5)**: chaotic, human-irregular timing
-2. **Low tx count (<10)**: insufficient volume for scheduled automation
-3. **Business hours clustering**: txs cluster Mon–Fri, 08:00–22:00 local time
-4. **Diverse counterparties relative to tx count**: ratio > 0.4
-5. **Irregular volumes**: varied amounts inconsistent with programmatic execution
-6. **Long gaps (days)**: humans forget, go on vacation, sleep for weeks
-
-### Nuanced Cases:
-- **DCA bots**: weekly/monthly txs, single counterparty (exchange), round amounts → AUTO even with high CV
-- **MEV bots**: ultra-low gaps (< 5s), burst patterns, zero round value preference → AUTO
-- **Manual power users**: high tx count but diverse counterparties, business hours → MANUAL
-- **Compromised wallets**: burst + unusual hours + single drain address → AUTO (malicious)
-- **Mixing services**: uniform amounts, many counterparties, frequent → AUTO
-
-## Output Format (JSON ONLY, no markdown, no prose outside JSON):
-{
-  "automationPercent": <0-100 integer>,
-  "verdict": "<one of: HIGHLY_AUTOMATED | LIKELY_AUTOMATED | BORDERLINE | LIKELY_MANUAL | HIGHLY_MANUAL>",
-  "confidence": "<HIGH|MEDIUM|LOW>",
-  "botType": "<null or one of: MEV_BOT | DCA_BOT | RELAY_BOT | MIXING_BOT | DRAIN_BOT | ARBITRAGE_BOT | SCHEDULER_BOT | MARKET_MAKER | UNKNOWN_AUTO>",
-  "reasoning": "<2-3 precise sentences citing the specific stats that drove your verdict. Be technical and specific, not vague.>",
-  "signals": [
-    {
-      "name": "<signal name>",
-      "weight": "<HIGH|MEDIUM|LOW>",
-      "direction": "<AUTO|MANUAL|NEUTRAL>",
-      "detail": "<one concise sentence>"
-    }
-  ]
-}
-
-Be decisive. If evidence is strong, reflect that in automationPercent (>85 or <15). Reserve 40–60 range for genuinely ambiguous cases only. Never output prose outside the JSON object.`;
-
-  const userPrompt = `Chain: ${chain.toUpperCase()}
-Address: ${address}
-
-Transaction Statistics:
-- Total txs analyzed: ${stats.txCount}
-- Mean gap between txs: ${stats.meanGapSec}s
-- Stddev of gap: ${stats.stddevGapSec}s
-- Coefficient of Variation (CV): ${stats.coefficientOfVariation.toFixed(4)}
-- Median gap: ${stats.medianGapSec !== undefined ? stats.medianGapSec + 's' : 'N/A'}
-- Min gap: ${stats.minGapSec !== undefined ? stats.minGapSec + 's' : 'N/A'}
-- Max gap: ${stats.maxGapSec !== undefined ? stats.maxGapSec + 's' : 'N/A'}
-- Unique counterparties: ${stats.uniqueCounterparties}
-- Counterparty diversity ratio: ${stats.txCount > 0 ? (stats.uniqueCounterparties / stats.txCount).toFixed(3) : 'N/A'}
-- Round value ratio: ${stats.roundValueRatio.toFixed(3)}
-- Off-hours tx ratio (00–06 UTC): ${stats.offHoursRatio !== undefined ? stats.offHoursRatio.toFixed(3) : 'N/A'}
-- Burst score: ${stats.burstScore !== undefined ? stats.burstScore.toFixed(3) : 'N/A'}
-- Volume entropy score: ${stats.volumeEntropyScore !== undefined ? stats.volumeEntropyScore.toFixed(3) : 'N/A'}
-- Self-loop ratio: ${stats.selfLoopRatio !== undefined ? stats.selfLoopRatio.toFixed(3) : 'N/A'}
-- First tx: ${stats.firstTx}
-- Last tx: ${stats.lastTx}
-- Top counterparty txs: ${stats.topCounterparty ? stats.topCounterparty.txCount : 'N/A'} (${stats.topCounterparty ? ((stats.topCounterparty.txCount / stats.txCount) * 100).toFixed(1) : 'N/A'}% of total)
-- Top counterparty volume: ${stats.topCounterparty ? stats.topCounterparty.totalVolume + ' ' + chain.toUpperCase() : 'N/A'}
-
-Prior (less sophisticated) AI assessment: ${rawAi.automationPercent}% automation, verdict: "${rawAi.verdict}"
-Note: The prior assessment may be inaccurate. Use the raw stats above as ground truth.`;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
-    });
-
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
-    const text = data.content?.map((b: { type: string; text?: string }) => b.type === 'text' ? b.text : '').join('') ?? '';
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-
-    return {
-      automationPercent: typeof parsed.automationPercent === 'number' ? parsed.automationPercent : rawAi.automationPercent,
-      verdict: parsed.verdict ?? rawAi.verdict,
-      reasoning: parsed.reasoning ?? rawAi.reasoning,
-      confidence: parsed.confidence ?? 'MEDIUM',
-      botType: parsed.botType ?? null,
-      signals: parsed.signals ?? [],
-    };
-  } catch {
-    // Fall back to raw AI result enriched with a note
-    return {
-      ...rawAi,
-      confidence: 'LOW',
-      signals: [],
-      reasoning: rawAi.reasoning + ' (Deep analysis unavailable — using initial assessment.)',
-    };
-  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -261,26 +135,25 @@ export default function DuneQuery() {
   const analyze = async (addr: string) => {
     setAnalyzing(s => ({ ...s, [addr]: true }));
     setAnalyzeError(s => ({ ...s, [addr]: '' }));
-    setAnalyzeStage(s => ({ ...s, [addr]: '🔍 Fetching on-chain stats…' }));
+    setAnalyzeStage(s => ({ ...s, [addr]: '🔍 Fetching on-chain stats & running expert AI classification…' }));
 
     try {
-      // Step 1: Get raw stats + initial AI from edge function
+      // Call the enhanced edge function which now does everything:
+      // 1. Fetch on-chain txs
+      // 2. Compute extended stats (min, max, median, bursts, entropy, etc.)
+      // 3. Expert AI classification via Lovable gateway
       const { data, error: fnErr } = await supabase.functions.invoke('analyze-wallet-automation', {
         body: { address: addr, chain },
       });
+      
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
 
-      const raw = data as Analysis;
-
-      setAnalyzeStage(s => ({ ...s, [addr]: '🧠 Running deep forensic AI analysis…' }));
-
-      // Step 2: Deep analysis via Anthropic API with expert prompt
-      const deepAi = await runDeepAnalysis(raw.stats, chain, addr, raw.ai);
-
+      const result = data as Analysis;
+      
       setAnalyses(s => ({
         ...s,
-        [addr]: { stats: raw.stats, ai: deepAi },
+        [addr]: result,
       }));
     } catch (e) {
       setAnalyzeError(s => ({ ...s, [addr]: e instanceof Error ? e.message : 'Analyze failed' }));
@@ -331,9 +204,9 @@ export default function DuneQuery() {
             onClick={() => analyze(addr)}
             disabled={busy}
             className="shrink-0 px-2 py-0.5 rounded text-[10px] bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-all disabled:opacity-40"
-            title="Deep AI automation analysis"
+            title="Expert AI automation analysis"
           >
-            {busy ? '⏳' : a ? '🔄 Re-analyze' : '🧠 Deep Analyze'}
+            {busy ? '⏳' : a ? '🔄 Re-analyze' : '🧠 Analyze'}
           </button>
         </div>
         {busy && stage && (
@@ -352,7 +225,7 @@ export default function DuneQuery() {
           <h2 className="text-lg font-semibold text-foreground">📊 Dune Back-and-Forth Scanner</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Finds address pairs with bidirectional transactions over the past 7 days.
-            Tap <span className="text-primary font-medium">🧠 Deep Analyze</span> to run forensic AI — it evaluates timing regularity, off-hours activity, volume entropy, counterparty concentration, and more to classify automation vs. manual control.
+            Tap <span className="text-primary font-medium">🧠 Analyze</span> to run expert forensic AI — evaluates timing regularity, off-hours activity, volume entropy, counterparty concentration, and burst patterns to classify automation vs. manual control with HIGH confidence.
           </p>
         </div>
 
@@ -519,15 +392,15 @@ function AnalysisCard({ analysis, chain }: { analysis: Analysis; chain: 'btc' | 
           <Stat label="Txs analyzed" value={String(stats.txCount)} />
           <Stat label="Unique counterparties" value={String(stats.uniqueCounterparties)} />
           <Stat label="Mean gap" value={fmtDuration(stats.meanGapSec)} />
+          <Stat label="Median gap" value={stats.medianGapSec ? fmtDuration(stats.medianGapSec) : 'N/A'} />
+          <Stat label="Min gap" value={stats.minGapSec ? fmtDuration(stats.minGapSec) : 'N/A'} />
+          <Stat label="Max gap" value={stats.maxGapSec ? fmtDuration(stats.maxGapSec) : 'N/A'} />
           <Stat label="CV (timing regularity)" value={stats.coefficientOfVariation.toFixed(3)} />
+          <Stat label="Burst score" value={stats.burstScore ? stats.burstScore.toFixed(3) : 'N/A'} />
           <Stat label="Round value ratio" value={(stats.roundValueRatio * 100).toFixed(1) + '%'} />
+          <Stat label="Off-hours ratio (UTC 00–06)" value={stats.offHoursRatio ? (stats.offHoursRatio * 100).toFixed(1) + '%' : 'N/A'} />
+          <Stat label="Volume entropy" value={stats.volumeEntropyScore ? stats.volumeEntropyScore.toFixed(3) : 'N/A'} />
           <Stat label="Counterparty diversity" value={stats.txCount > 0 ? (stats.uniqueCounterparties / stats.txCount).toFixed(3) : 'N/A'} />
-          {stats.offHoursRatio !== undefined && (
-            <Stat label="Off-hours ratio (00–06 UTC)" value={(stats.offHoursRatio * 100).toFixed(1) + '%'} />
-          )}
-          {stats.minGapSec !== undefined && (
-            <Stat label="Min gap" value={fmtDuration(stats.minGapSec)} />
-          )}
           <Stat label="First tx" value={new Date(stats.firstTx).toLocaleDateString()} />
           <Stat label="Last tx" value={new Date(stats.lastTx).toLocaleString()} />
         </div>
