@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
+    wasm(),
+    topLevelAwait(),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
