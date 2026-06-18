@@ -149,12 +149,39 @@ export default function DuneQuery() {
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
 
-      const result = data as Analysis;
-      
+      // Edge function returns nested stats ({ timing, schedule, values, counterparties, ethereum }).
+      // Flatten into the shape this component renders.
+      const raw = data as any;
+      const s = raw?.stats;
+      const flatStats = s ? {
+        txCount: s.txCount ?? 0,
+        meanGapSec: s.timing?.meanGapSec ?? 0,
+        stddevGapSec: s.timing?.stddevGapSec ?? 0,
+        coefficientOfVariation: s.timing?.coefficientOfVariation ?? 0,
+        medianGapSec: s.timing?.medianGapSec,
+        minGapSec: s.timing?.minGapSec,
+        maxGapSec: s.timing?.maxGapSec,
+        burstScore: s.timing?.burstCount,
+        offHoursRatio: s.schedule?.weekendShare,
+        volumeEntropyScore: s.schedule?.hourEntropyBits,
+        uniqueCounterparties: s.counterparties?.unique ?? 0,
+        topCounterparty: s.counterparties?.top ? {
+          address: s.counterparties.top.address,
+          txCount: s.counterparties.top.txCount,
+          totalVolume: s.counterparties.top.totalVolume,
+        } : null,
+        roundValueRatio: s.values?.roundValueRatio ?? 0,
+        selfLoopRatio: 0,
+        firstTx: s.firstTx,
+        lastTx: s.lastTx,
+      } : null;
+      const result: Analysis = { stats: flatStats as any, ai: raw?.ai ?? { automationPercent: null, verdict: 'Unknown', reasoning: '' } };
+
       setAnalyses(s => ({
         ...s,
         [addr]: result,
       }));
+
     } catch (e) {
       setAnalyzeError(s => ({ ...s, [addr]: e instanceof Error ? e.message : 'Analyze failed' }));
     } finally {
