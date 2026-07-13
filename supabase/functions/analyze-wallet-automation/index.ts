@@ -262,70 +262,54 @@ function analyzePattern(txs: TxSummary[], chain: "btc" | "eth") {
   };
 }
 
-// ── AI classification ──────────────────────────────────────────────────────
-async function classifyWithAi(stats: ReturnType<typeof analyzePattern>, chain: string) {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
-  if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
+// ── Deterministic rule-based scoring (grounds the AI) ─────────────────────
+function ruleScore(s: any): { score: number; signals: string[] } {
+  const signals: string[] = [];
+  let score = 50; // neutral
+  const bump = (delta: number, label: string) => { score += delta; signals.push(`${delta > 0 ? "+" : ""}${delta} ${label}`); };
 
-  const systemPrompt = `You are an expert blockchain forensics analyst specialising in distinguishing automated wallet behaviour (bots, MEV searchers, exchange hot wallets, market makers, scheduled scripts, drainers) from human-controlled wallets (retail traders, treasuries operated by humans, NFT collectors, casual DeFi users).
+  const t = s.timing, sch = s.schedule, v = s.values, cp = s.counterparties, eth = s.ethereum;
 
-You will receive a rigorously computed feature set extracted from on-chain transaction history. Reason through ALL of these signals before answering — do not anchor on a single metric:
+  // Automation signals
+  if (t.coefficientOfVariation < 0.25) bump(+22, `cv=${t.coefficientOfVariation} (metronomic)`);
+  else if (t.coefficientOfVariation < 0.5) bump(+10, `cv=${t.coefficientOfVariation} (regular)`);
+  if (t.cronLikeRatio > 0.4) bump(+20, `cronLikeRatio=${t.cronLikeRatio}@${t.cronLikeIntervalSec}s`);
+  if (t.subMinuteGapRatio > 0.3) bump(+15, `subMinute=${t.subMinuteGapRatio}`);
+  if (t.burstCount >= 5 && t.maxBurstSize >= 5) bump(+12, `bursts=${t.burstCount}/max=${t.maxBurstSize}`);
+  if (sch.longestQuietHoursUtc < 3 && sch.hourEntropyBits > 3.8) bump(+18, `no sleep, entropy=${sch.hourEntropyBits}`);
+  if (cp.herfindahlIndex > 0.6) bump(+12, `hhi=${cp.herfindahlIndex} (narrow loop)`);
+  if (v.repeatedValueRatio > 0.4) bump(+12, `repeatValue=${v.repeatedValueRatio}`);
+  if (s.txPerDay > 50) bump(+20, `txPerDay=${s.txPerDay}`);
+  else if (s.txPerDay > 20) bump(+10, `txPerDay=${s.txPerDay}`);
+  if (eth) {
+    if (eth.gasPriceCv < 0.05 && eth.topMethodShare > 0.7) bump(+18, `gasCv=${eth.gasPriceCv}, method=${eth.topMethodShare}`);
+    if (eth.contractInteractionRatio > 0.95 && eth.uniqueMethodIds <= 2) bump(+15, `single-purpose contract`);
+  }
 
-STRONG AUTOMATION SIGNALS (each ≈ +15-25%):
-• coefficientOfVariation in inter-tx gaps < 0.25  (highly regular cadence)
-• cronLikeRatio > 0.4 with cronLikeIntervalSec a round number (60, 300, 600, 3600) — classic scheduler
-• subMinuteGapRatio > 0.3 sustained across many txs — humans can't manually click that fast repeatedly
-• burstCount > 5 with maxBurstSize ≥ 5 and tight gas/value reuse — bot batch
-• longestQuietHoursUtc < 3 AND hourEntropyBits > 3.8 — 24/7 uniform activity (no sleep)
-• herfindahlIndex > 0.6 with topCounterparty.txCount very high — narrow ops loop (MM/CEX router/drainer)
-• repeatedValueRatio > 0.4 — same amount over and over (faucet, drainer, MEV)
-• ETH: gasPriceCv < 0.05 AND topMethodShare > 0.7 — same contract method at near-constant gas
-• ETH: contractInteractionRatio > 0.95 with uniqueMethodIds ≤ 2 — single-purpose bot
-• txPerDay > 50 sustained — almost certainly automated
+  // Human signals
+  if (t.coefficientOfVariation > 1.5) bump(-18, `cv=${t.coefficientOfVariation} (irregular)`);
+  if (v.roundValueRatio > 0.35) bump(-12, `roundValues=${v.roundValueRatio}`);
+  if (sch.longestQuietHoursUtc >= 6) bump(-15, `sleep=${sch.longestQuietHoursUtc}h`);
+  if (cp.unique > 20 && cp.herfindahlIndex < 0.15) bump(-15, `diverse cps=${cp.unique}`);
+  if (s.txPerDay < 2 && cp.unique > 5) bump(-10, `low velocity + varied`);
+  if (eth && eth.uniqueMethodIds >= 6 && eth.contractInteractionRatio > 0.2 && eth.contractInteractionRatio < 0.8) {
+    bump(-12, `explorer methods=${eth.uniqueMethodIds}`);
+  }
 
-STRONG HUMAN SIGNALS (each ≈ +15-25%):
-• coefficientOfVariation > 1.5 — irregular, bursty in a "human" way
-• roundValueRatio > 0.35 — humans like 0.1, 0.5, 1, 10 ETH/BTC
-• longestQuietHoursUtc ≥ 6 — a sleep window
-• weekendShare clearly < 2/7 (≈0.28) OR clearly > 2/7 with low overall volume — human schedule
-• ETH: uniqueMethodIds ≥ 6 with contractInteractionRatio between 0.2–0.8 — exploring DeFi like a person
-• counterparties.unique > 20 with herfindahlIndex < 0.15 — diverse social/DeFi graph
-• Low txPerDay (<2) with mixed values & varied counterparties
-
-MIXED / AMBIGUOUS:
-• Human using a trading frontend can produce moderate regularity → look at sleep window & method diversity to break the tie
-• Exchange deposit wallets look automated on the OUT side but receive from humans on the IN side
-• Treasury multisigs can have low cadence but very regular round amounts — call those "Human-Operated"
-
-Output JSON ONLY with this exact schema:
-{
-  "automationPercent": <integer 0-100, your best calibrated estimate>,
-  "verdict": "<one of: 'Pure Bot', 'Likely Bot', 'Mixed', 'Likely Human', 'Pure Human', 'Exchange/CEX', 'MEV Searcher', 'Market Maker', 'Drainer/Scam', 'Treasury/Multisig'>",
-  "confidence": "<'low' | 'medium' | 'high'>",
-  "topSignals": [<3-5 short strings naming the specific features that drove the verdict, e.g. "cronLikeRatio=0.82 @ 300s", "no sleep window", "gasPriceCv=0.02">],
-  "reasoning": "<3-5 sentences explaining the verdict, citing actual numeric values from the stats, not generic theory>"
+  score = Math.max(0, Math.min(100, score));
+  return { score, signals };
 }
 
-Be decisive. Avoid "Mixed" unless signals genuinely contradict. If txCount < 10, drop confidence to "low" and say so.`;
-
-  const userPrompt = `Chain: ${chain.toUpperCase()}
-
-Features:
-${JSON.stringify(stats, null, 2)}
-
-Classify this wallet now.`;
-
+// ── AI classification with self-consistency ────────────────────────────────
+async function callAiOnce(systemPrompt: string, userPrompt: string, apiKey: string, model: string) {
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "google/gemini-2.5-pro",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+      model,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       response_format: { type: "json_object" },
-      temperature: 0.1,
+      temperature: 0.15,
     }),
   });
   if (!r.ok) {
@@ -335,14 +319,101 @@ Classify this wallet now.`;
   }
   const data = await r.json();
   const content = data.choices?.[0]?.message?.content ?? "{}";
-  try {
-    const parsed = JSON.parse(content);
-    // Normalise confidence to uppercase for the UI
-    if (typeof parsed.confidence === "string") parsed.confidence = parsed.confidence.toUpperCase();
-    return parsed;
-  } catch {
-    return { automationPercent: null, verdict: "Unknown", confidence: "LOW", topSignals: [], reasoning: content };
+  try { return JSON.parse(content); } catch { return null; }
+}
+
+async function classifyWithAi(stats: ReturnType<typeof analyzePattern>, chain: string) {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
+
+  const rule = ruleScore(stats);
+
+  const systemPrompt = `You are an elite blockchain forensics analyst. You classify wallets as automated vs human-controlled with calibrated, evidence-grounded confidence. NEVER guess. NEVER contradict the numeric evidence.
+
+You will be given:
+  1. A rigorously computed feature set from on-chain history.
+  2. A deterministic rule-based automation score (0-100) with the exact signals that produced it.
+
+Your job:
+  • Verify the rule score against the features. If it is well-supported, stay within ±8 of it.
+  • Only deviate more than ±8 when features reveal a pattern the rules missed (e.g. clear MEV, drainer sweep, treasury cadence). Justify explicitly.
+  • Choose the single best verdict category.
+  • Assign confidence honestly: 'high' only when signals converge and txCount ≥ 30; 'medium' for txCount 10-29 or moderate agreement; 'low' for <10 tx or contradictory signals.
+
+Output JSON ONLY, exact schema:
+{
+  "automationPercent": <int 0-100>,
+  "verdict": "<'Pure Bot' | 'Likely Bot' | 'Mixed' | 'Likely Human' | 'Pure Human' | 'Exchange/CEX' | 'MEV Searcher' | 'Market Maker' | 'Drainer/Scam' | 'Treasury/Multisig'>",
+  "confidence": "<'low' | 'medium' | 'high'>",
+  "topSignals": [<3-5 short strings citing SPECIFIC numeric values, e.g. "cv=0.08", "cronLikeRatio=0.82 @300s", "no sleep window (0h quiet)">],
+  "reasoning": "<3-5 sentences citing actual numeric values from the stats. No generic theory.>"
+}`;
+
+  const userPrompt = `Chain: ${chain.toUpperCase()}
+
+Rule-based score: ${rule.score}/100
+Rule signals: ${rule.signals.join("; ")}
+
+Features:
+${JSON.stringify(stats, null, 2)}
+
+Classify now. Anchor near the rule score unless features clearly justify otherwise.`;
+
+  // Self-consistency: run 3 samples in parallel, aggregate
+  const model = "openai/gpt-5.5";
+  const results = await Promise.allSettled([
+    callAiOnce(systemPrompt, userPrompt, apiKey, model),
+    callAiOnce(systemPrompt, userPrompt, apiKey, model),
+    callAiOnce(systemPrompt, userPrompt, apiKey, model),
+  ]);
+  const good = results
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value && typeof r.value.automationPercent === "number")
+    .map(r => r.value);
+
+  if (good.length === 0) {
+    // Fall back to pure rule score
+    return {
+      automationPercent: rule.score,
+      verdict: rule.score >= 75 ? "Likely Bot" : rule.score <= 30 ? "Likely Human" : "Mixed",
+      confidence: "LOW",
+      topSignals: rule.signals.slice(0, 5),
+      reasoning: `AI unavailable. Deterministic rule score ${rule.score}/100 from: ${rule.signals.join("; ")}.`,
+      ruleScore: rule.score,
+    };
   }
+
+  // Blend: weighted average of AI samples (0.7) + rule score (0.3) — anchors AI to evidence
+  const aiAvg = good.reduce((s, r) => s + r.automationPercent, 0) / good.length;
+  const blended = Math.round(aiAvg * 0.7 + rule.score * 0.3);
+
+  // Pick most common verdict from AI samples
+  const verdictCounts = new Map<string, number>();
+  for (const r of good) verdictCounts.set(r.verdict, (verdictCounts.get(r.verdict) ?? 0) + 1);
+  const verdict = [...verdictCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  // Take highest confidence when samples agree, otherwise lower
+  const confOrder = ["low", "medium", "high"];
+  const confs = good.map(r => (r.confidence ?? "low").toLowerCase());
+  const agree = new Set(good.map(r => r.verdict)).size === 1;
+  const confIdx = agree
+    ? Math.max(...confs.map(c => confOrder.indexOf(c)))
+    : Math.min(...confs.map(c => confOrder.indexOf(c)));
+  const confidence = (confOrder[confIdx] ?? "low").toUpperCase();
+
+  // Merge signals + reasoning from the sample closest to the blended score
+  const best = good.reduce((a, b) =>
+    Math.abs(a.automationPercent - blended) <= Math.abs(b.automationPercent - blended) ? a : b
+  );
+
+  return {
+    automationPercent: blended,
+    verdict,
+    confidence,
+    topSignals: best.topSignals ?? rule.signals.slice(0, 5),
+    reasoning: `${best.reasoning ?? ""} [Ensemble: ${good.length} samples avg ${aiAvg.toFixed(1)}, rule ${rule.score}, blended ${blended}.]`,
+    ruleScore: rule.score,
+    aiSamples: good.map(r => r.automationPercent),
+  };
 }
 
 Deno.serve(async (req) => {
