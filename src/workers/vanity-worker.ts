@@ -1,9 +1,13 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
 import { ripemd160 } from '@noble/hashes/legacy.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
 import { bech32 } from 'bech32';
 import bs58 from 'bs58';
+
+// Cache function references to avoid property lookups in tight loops
+const { getRandomValues } = crypto;
+const { getPublicKey } = secp256k1;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let running = false;
@@ -40,7 +44,7 @@ function bytesToHex(bytes: Uint8Array): string {
 // so that injected mouse/keyboard entropy actually influences key material.
 function generatePrivateKey(): Uint8Array {
   const raw = new Uint8Array(32);
-  crypto.getRandomValues(raw);
+  getRandomValues(raw);
 
   // Mix with entropy pool
   for (let i = 0; i < 32; i++) {
@@ -60,7 +64,7 @@ function generatePrivateKey(): Uint8Array {
   }
 
   // Re-hash to ensure uniform distribution
-  return sha256(raw);
+  return nobleSha256(raw);
 }
 
 // Refresh the entropy pool from injected external data
@@ -171,7 +175,7 @@ self.onmessage = (e: MessageEvent) => {
 
       let batchAttempts = 0;
       let lastReport = performance.now();
-
+      let batchCount = 0;
       // Use MessageChannel to drive the loop without setTimeout throttling.
       // This keeps the worker fully active even in background tabs.
       const channel = new MessageChannel();
@@ -185,7 +189,7 @@ self.onmessage = (e: MessageEvent) => {
 
         // Adaptive batch size: larger batches = better throughput,
         // smaller = more responsive stop/entropy signals
-        const batchSize = 5000;
+        const batchSize = 50000;
 
         for (let i = 0; i < batchSize; i++) {
           const privKey = generatePrivateKey();
@@ -231,16 +235,20 @@ self.onmessage = (e: MessageEvent) => {
               timestamp: Date.now(),
             },
           });
-        }
+        } // end of for loop
+        batchCount++;
 
-        // ── Hashrate reporting (once per second) ────────────────────────
-        const now = performance.now();
-        if (now - lastReport >= 1000) {
+       // ── Hashrate reporting (every 10 batches to reduce messaging) ─
+        batchCount++;
+        if (batchCount % 10 === 0) {
+          const now = performance.now();
           const elapsed = (now - lastReport) / 1000;
+          const attemptsSinceLastReport = batchAttempts;
           self.postMessage({
             type: 'progress',
             payload: {
-              hashrate: Math.round(batchAttempts / elapsed),
+              hashrate: Math.round(attemptsSinceLastReport / elapsed),
+              attempts: attemptsSinceLastReport,
             },
           });
           batchAttempts = 0;
