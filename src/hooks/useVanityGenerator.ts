@@ -40,7 +40,6 @@ export function useVanityGenerator() {
     });
     workersRef.current = [];
     workerRatesRef.current.clear();
-    workerAttemptsRef.current.clear();
     setIsRunning(false);
     setHashrate(0);
   }, []);
@@ -66,21 +65,16 @@ export function useVanityGenerator() {
       worker.onmessage = (e) => {
         const { type, payload } = e.data;
 
-        if (type === 'progress') {
-          // FIX: payload.hashrate is addresses/second from THIS worker
-          // Store it per-worker and sum all workers for total hashrate
+       if (type === 'progress') {
+          // Per-worker hashrate, sum for total
           workerRatesRef.current.set(workerIndex, payload.hashrate as number);
 
           let totalRate = 0;
           workerRatesRef.current.forEach(rate => { totalRate += rate; });
           setHashrate(totalRate);
 
-          // Track total cumulative attempts properly
-          const prevAttempts = workerAttemptsRef.current.get(workerIndex) || 0;
-          const newAttempts = prevAttempts + payload.hashrate;
-          workerAttemptsRef.current.set(workerIndex, newAttempts);
-          setTotalAttempts(prev => prev + payload.hashrate);
-
+          // payload.attempts is the exact count since last report
+          setTotalAttempts(prev => prev + payload.attempts);
         } else if (type === 'found') {
           setResults(prev => [payload as FoundAddress, ...prev]);
         }
