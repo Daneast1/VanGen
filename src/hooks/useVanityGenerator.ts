@@ -30,7 +30,7 @@ export function useVanityGenerator() {
   const workerAttemptsRef = useRef<Map<number, number>>(new Map());
 
   // Use ALL logical cores — workers run in separate threads and don't block the UI
-  const workerCount = Math.max(1, navigator.hardwareConcurrency || 4);
+  const workerCount = 12; // override for max throughput on slow CPUs
 
   const stop = useCallback(() => {
     workersRef.current.forEach(w => {
