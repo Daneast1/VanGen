@@ -197,6 +197,11 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
             })}
           </tbody>
         </table>
+        {visible.length === 0 && (
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+            No results match the active filters yet — balances and TX counts are still being checked.
+          </div>
+        )}
       </div>
     </div>
   );
