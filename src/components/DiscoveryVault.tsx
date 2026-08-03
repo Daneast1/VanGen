@@ -5,9 +5,14 @@ import { useBalanceChecker } from '@/hooks/useBalanceChecker';
 interface Props {
   results: FoundAddress[];
   onClear: () => void;
+  onlyWithBalance?: boolean;
+  onlyWithTx?: boolean;
 }
 
-export default function DiscoveryVault({ results, onClear }: Props) {
+const hasFunds = (value?: string | null) =>
+  !!value && !/^0(\.0+)?$/.test(value.trim().split(' ')[0]);
+
+export default function DiscoveryVault({ results, onClear, onlyWithBalance = false, onlyWithTx = false }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
   const { checkBalance, getBalance } = useBalanceChecker();
   const checkedRef = useRef<Set<string>>(new Set());
