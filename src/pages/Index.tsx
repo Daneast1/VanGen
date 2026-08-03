@@ -53,6 +53,8 @@ export default function Index() {
   const [btcType, setBtcType] = useState('p2pkh');
   const [targetAddress, setTargetAddress] = useState('');
   const [entropyCount, setEntropyCount] = useState(0);
+  const [onlyWithBalance, setOnlyWithBalance] = useState(false);
+  const [onlyWithTx, setOnlyWithTx] = useState(false);
   const entropyBuffer = useRef<number[]>([]);
 
   const gen = useVanityGenerator();
@@ -461,7 +463,41 @@ export default function Index() {
               </p>
             </div>
 
-            <DiscoveryVault results={gen.results} onClear={gen.clearResults} />
+            <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🎯 Result Filters</span>
+                <span className="text-xs text-muted-foreground">
+                  Leave both unchecked to list every match
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-current"
+                    checked={onlyWithBalance}
+                    onChange={(e) => setOnlyWithBalance(e.target.checked)}
+                  />
+                  Only addresses with balance
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-current"
+                    checked={onlyWithTx}
+                    onChange={(e) => setOnlyWithTx(e.target.checked)}
+                  />
+                  Only addresses with transaction history
+                </label>
+              </div>
+            </div>
+
+            <DiscoveryVault
+              results={gen.results}
+              onClear={gen.clearResults}
+              onlyWithBalance={onlyWithBalance}
+              onlyWithTx={onlyWithTx}
+            />
           </>
         )}
 

@@ -5,9 +5,14 @@ import { useBalanceChecker } from '@/hooks/useBalanceChecker';
 interface Props {
   results: FoundAddress[];
   onClear: () => void;
+  onlyWithBalance?: boolean;
+  onlyWithTx?: boolean;
 }
 
-export default function DiscoveryVault({ results, onClear }: Props) {
+const hasFunds = (value?: string | null) =>
+  !!value && !/^0(\.0+)?$/.test(value.trim().split(' ')[0]);
+
+export default function DiscoveryVault({ results, onClear, onlyWithBalance = false, onlyWithTx = false }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
   const { checkBalance, getBalance } = useBalanceChecker();
   const checkedRef = useRef<Set<string>>(new Set());
@@ -77,6 +82,16 @@ export default function DiscoveryVault({ results, onClear }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const filtering = onlyWithBalance || onlyWithTx;
+  const visible = filtering
+    ? results.filter(r => {
+        const b = getBalance(r.address);
+        if (onlyWithBalance && !hasFunds(b.value)) return false;
+        if (onlyWithTx && !(b.txCount && b.txCount > 0)) return false;
+        return true;
+      })
+    : results;
+
   if (results.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
@@ -91,7 +106,7 @@ export default function DiscoveryVault({ results, onClear }: Props) {
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h3 className="text-sm font-semibold text-foreground">
-          🔐 Discovery Vault ({results.length})
+          🔐 Discovery Vault ({visible.length}{filtering ? ` / ${results.length}` : ''})
         </h3>
         <div className="flex gap-2">
           <button onClick={exportTxt} className="px-3 py-1 text-xs rounded-md bg-accent text-accent-foreground hover:bg-muted transition-colors">
@@ -119,7 +134,7 @@ export default function DiscoveryVault({ results, onClear }: Props) {
             </tr>
           </thead>
           <tbody>
-            {results.map((r, i) => {
+            {visible.map((r, i) => {
               const bal = getBalance(r.address);
               return (
                 <tr key={i} className={`border-b border-border/50 transition-colors ${
@@ -182,6 +197,11 @@ export default function DiscoveryVault({ results, onClear }: Props) {
             })}
           </tbody>
         </table>
+        {visible.length === 0 && (
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+            No results match the active filters yet — balances and TX counts are still being checked.
+          </div>
+        )}
       </div>
     </div>
   );
