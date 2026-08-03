@@ -102,6 +102,14 @@ export function useVanityGenerator() {
 
   const clearResults = useCallback(() => setResults([]), []);
 
+  // Drop candidates that failed the on-chain result filter so the vault only
+  // ever holds addresses matching the pattern AND the requested criteria.
+  const removeResults = useCallback((addresses: string[]) => {
+    if (addresses.length === 0) return;
+    const drop = new Set(addresses);
+    setResults(prev => prev.filter(r => !drop.has(r.address)));
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -118,6 +126,7 @@ export function useVanityGenerator() {
     stop,
     injectEntropy,
     clearResults,
+    removeResults,
     workerCount,
   };
 }
