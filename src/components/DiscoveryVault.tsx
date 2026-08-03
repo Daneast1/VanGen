@@ -7,15 +7,21 @@ interface Props {
   onClear: () => void;
   onlyWithBalance?: boolean;
   onlyWithTx?: boolean;
+  /** Remove candidates that failed the on-chain result filter */
+  onDiscard?: (addresses: string[]) => void;
 }
 
 const hasFunds = (value?: string | null) =>
   !!value && !/^0(\.0+)?$/.test(value.trim().split(' ')[0]);
 
-export default function DiscoveryVault({ results, onClear, onlyWithBalance = false, onlyWithTx = false }: Props) {
+export default function DiscoveryVault({ results, onClear, onlyWithBalance = false, onlyWithTx = false, onDiscard }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
   const { checkBalance, getBalance } = useBalanceChecker();
   const checkedRef = useRef<Set<string>>(new Set());
+  const [screened, setScreened] = useState(0);
+  const [rejected, setRejected] = useState(0);
+
+  const filtering = onlyWithBalance || onlyWithTx;
 
   // Auto-check balance for new results
   useEffect(() => {
@@ -26,6 +32,29 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
       }
     }
   }, [results, checkBalance]);
+
+  // On-chain screening: once a candidate's data has resolved, keep it only if
+  // it satisfies the active filters — otherwise discard it and keep searching.
+  useEffect(() => {
+    if (!filtering) return;
+    const drop: string[] = [];
+    for (const r of results) {
+      const b = getBalance(r.address);
+      const balanceReady = !b.loading && (b.value !== null || b.error);
+      const txReady = !b.txLoading && (b.txCount !== null || b.txError);
+      if (onlyWithBalance && !balanceReady) continue;
+      if (onlyWithTx && !txReady) continue;
+      const passBalance = !onlyWithBalance || hasFunds(b.value);
+      const passTx = !onlyWithTx || !!(b.txCount && b.txCount > 0);
+      if (!passBalance || !passTx) drop.push(r.address);
+    }
+    if (drop.length > 0) {
+      setScreened(s => s + drop.length);
+      setRejected(n => n + drop.length);
+      onDiscard?.(drop);
+    }
+  }, [results, filtering, onlyWithBalance, onlyWithTx, getBalance, onDiscard]);
+
 
   // All hooks are above — no early returns before this point
 
