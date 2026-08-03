@@ -137,7 +137,12 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h3 className="text-sm font-semibold text-foreground">
-          🔐 Discovery Vault ({visible.length}{filtering ? ` / ${results.length}` : ''})
+          🔐 Discovery Vault ({visible.length})
+          {filtering && (
+            <span className="ml-2 font-normal text-muted-foreground">
+              · {screened.toLocaleString()} screened · {rejected.toLocaleString()} rejected
+            </span>
+          )}
         </h3>
         <div className="flex gap-2">
           <button onClick={exportTxt} className="px-3 py-1 text-xs rounded-md bg-accent text-accent-foreground hover:bg-muted transition-colors">
