@@ -111,7 +111,6 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
     URL.revokeObjectURL(url);
   };
 
-  const filtering = onlyWithBalance || onlyWithTx;
   const visible = filtering
     ? results.filter(r => {
         const b = getBalance(r.address);
@@ -125,11 +124,14 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
         <div className="text-muted-foreground text-sm">
-          No addresses found yet. Start generating to fill the vault.
+          {filtering
+            ? `Still hunting for a match that meets your on-chain filter — ${screened.toLocaleString()} candidate${screened === 1 ? '' : 's'} screened, ${rejected.toLocaleString()} rejected.`
+            : 'No addresses found yet. Start generating to fill the vault.'}
         </div>
       </div>
     );
   }
+
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
