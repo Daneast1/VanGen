@@ -6,7 +6,9 @@ import { bech32 } from 'bech32';
 import bs58 from 'bs58';
 
 // Cache function references to avoid property lookups in tight loops
-const getRandomValues = (arr: Uint8Array) => crypto.getRandomValues(arr);
+const getRandomValues = (arr: Uint8Array) =>
+  crypto.getRandomValues(arr as unknown as Uint8Array<ArrayBuffer>);
+const sha256 = nobleSha256;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let running = false;
