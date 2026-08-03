@@ -6,8 +6,7 @@ import { bech32 } from 'bech32';
 import bs58 from 'bs58';
 
 // Cache function references to avoid property lookups in tight loops
-const { getRandomValues } = crypto;
-const { getPublicKey } = secp256k1;
+const getRandomValues = (arr: Uint8Array) => crypto.getRandomValues(arr);
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let running = false;
