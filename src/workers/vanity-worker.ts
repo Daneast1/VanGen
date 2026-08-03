@@ -174,9 +174,10 @@ self.onmessage = (e: MessageEvent) => {
       else if (addressType === 'bech32') sliceStart = 4; // 'bc1q'
       else sliceStart = 1;                       // '1' or '3'
 
+      const noFilter = !hasTarget && !hasPrefix && !hasSuffix;
+
       let batchAttempts = 0;
       let lastReport = performance.now();
-      let batchCount = 0;
       // Use MessageChannel to drive the loop without setTimeout throttling.
       // This keeps the worker fully active even in background tabs.
       const channel = new MessageChannel();
@@ -188,9 +189,10 @@ self.onmessage = (e: MessageEvent) => {
           return;
         }
 
-        // Adaptive batch size: larger batches = better throughput,
-        // smaller = more responsive stop/entropy signals
-        const batchSize = 50000;
+        // Small batches keep the first progress report (and stop/entropy
+        // handling) fast; the loop runs continuously so throughput is unaffected.
+        const batchSize = 500;
+        let foundThisBatch = 0;
 
         for (let i = 0; i < batchSize; i++) {
           const privKey = generatePrivateKey();
@@ -216,15 +218,17 @@ self.onmessage = (e: MessageEvent) => {
               : address.slice(sliceStart);
             if (hasPrefix && !body.startsWith(prefixTarget)) continue;
             if (hasSuffix && !body.endsWith(suffixTarget)) continue;
-          } else {
-            // No target, no prefix, no suffix — every address matches
-            // (shouldn't normally happen but handle gracefully)
+          } else if (foundThisBatch >= 1) {
+            // No filters at all — stream a limited sample so the UI
+            // isn't flooded with tens of thousands of rows per second.
+            continue;
           }
 
           // ── Self-verification before reporting ──────────────────────────
           const verified = verifyMatch(privKey, address, network, addressType);
           if (!verified) continue; // cryptographic integrity check failed
 
+          foundThisBatch++;
           self.postMessage({
             type: 'found',
             payload: {
@@ -237,23 +241,27 @@ self.onmessage = (e: MessageEvent) => {
             },
           });
         } // end of for loop
-        batchCount++;
 
-       // ── Hashrate reporting (every 10 batches to reduce messaging) ─
-        batchCount++;
-        if (batchCount % 10 === 0) {
-          const now = performance.now();
-          const elapsed = (now - lastReport) / 1000;
-          const attemptsSinceLastReport = batchAttempts;
+        // ── Hashrate reporting (time based, ~4x/sec) ────────────────────
+        const now = performance.now();
+        const elapsed = (now - lastReport) / 1000;
+        if (elapsed >= 0.25) {
           self.postMessage({
             type: 'progress',
             payload: {
-              hashrate: Math.round(attemptsSinceLastReport / elapsed),
-              attempts: attemptsSinceLastReport,
+              hashrate: Math.round(batchAttempts / elapsed),
+              attempts: batchAttempts,
             },
           });
           batchAttempts = 0;
           lastReport = now;
+        }
+
+        if (noFilter) {
+          // Give the message queue a breath so the UI stays responsive
+          // when every address is a "match".
+          setTimeout(() => channel.port1.postMessage(null), 0);
+          return;
         }
 
         // Schedule next batch
