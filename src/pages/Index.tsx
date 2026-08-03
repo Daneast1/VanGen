@@ -497,6 +497,7 @@ export default function Index() {
               onClear={gen.clearResults}
               onlyWithBalance={onlyWithBalance}
               onlyWithTx={onlyWithTx}
+              onDiscard={gen.removeResults}
             />
           </>
         )}
