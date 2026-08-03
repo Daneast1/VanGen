@@ -134,7 +134,7 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
             </tr>
           </thead>
           <tbody>
-            {results.map((r, i) => {
+            {visible.map((r, i) => {
               const bal = getBalance(r.address);
               return (
                 <tr key={i} className={`border-b border-border/50 transition-colors ${
