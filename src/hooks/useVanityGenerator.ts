@@ -76,7 +76,7 @@ export function useVanityGenerator() {
           // payload.attempts is the exact count since last report
           setTotalAttempts(prev => prev + payload.attempts);
         } else if (type === 'found') {
-          setResults(prev => [payload as FoundAddress, ...prev]);
+          setResults(prev => [payload as FoundAddress, ...prev].slice(0, 500));
         }
       };
 
