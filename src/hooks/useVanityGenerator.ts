@@ -22,6 +22,7 @@ export function useVanityGenerator() {
   const [hashrate, setHashrate] = useState(0);
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [results, setResults] = useState<FoundAddress[]>([]);
+  const [foundCount, setFoundCount] = useState(0);
 
   const workersRef = useRef<Worker[]>([]);
   // Per-worker hashrate map: workerIndex → last reported rate (addr/s)
@@ -48,6 +49,7 @@ export function useVanityGenerator() {
     stop();
     setIsRunning(true);
     setTotalAttempts(0);
+    setFoundCount(0);
     setHashrate(0);
     workerRatesRef.current.clear();
     workerAttemptsRef.current.clear();
@@ -76,6 +78,9 @@ export function useVanityGenerator() {
           // payload.attempts is the exact count since last report
           setTotalAttempts(prev => prev + payload.attempts);
         } else if (type === 'found') {
+          setFoundCount(count => count + 1);
+          // Keep the rendered vault bounded so a long run cannot exhaust the
+          // browser's memory. foundCount remains the uncapped run total.
           setResults(prev => [payload as FoundAddress, ...prev].slice(0, 500));
         }
       };
@@ -100,7 +105,10 @@ export function useVanityGenerator() {
     });
   }, []);
 
-  const clearResults = useCallback(() => setResults([]), []);
+  const clearResults = useCallback(() => {
+    setResults([]);
+    setFoundCount(0);
+  }, []);
 
   // Drop candidates that failed the on-chain result filter so the vault only
   // ever holds addresses matching the pattern AND the requested criteria.
@@ -122,6 +130,7 @@ export function useVanityGenerator() {
     hashrate,
     totalAttempts,
     results,
+    foundCount,
     start,
     stop,
     injectEntropy,

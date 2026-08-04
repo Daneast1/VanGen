@@ -393,7 +393,7 @@ export default function Index() {
                 />
                 <StatCard
                   label="Found"
-                  value={`${gen.results.length}`}
+                  value={gen.foundCount.toLocaleString()}
                   accent={isMint}
                 />
                 <StatCard
@@ -467,7 +467,7 @@ export default function Index() {
               <div className="flex items-center gap-2">
                 <span className="text-sm">🎯 Result Filters</span>
                 <span className="text-xs text-muted-foreground">
-                  Leave both unchecked to list every match
+                  Screens every generated pattern match; leave both unchecked to list every match
                 </span>
               </div>
               <div className="flex flex-wrap gap-4">
