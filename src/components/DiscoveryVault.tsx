@@ -18,10 +18,18 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
   const { checkBalance, getBalance } = useBalanceChecker();
   const checkedRef = useRef<Set<string>>(new Set());
+  const screenedRef = useRef<Set<string>>(new Set());
   const [screened, setScreened] = useState(0);
   const [rejected, setRejected] = useState(0);
 
   const filtering = onlyWithBalance || onlyWithTx;
+
+  // Changing the requested criteria starts a fresh screening accounting pass.
+  useEffect(() => {
+    screenedRef.current.clear();
+    setScreened(0);
+    setRejected(0);
+  }, [onlyWithBalance, onlyWithTx]);
 
   // Auto-check balance for new results
   useEffect(() => {
@@ -38,18 +46,22 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
   useEffect(() => {
     if (!filtering) return;
     const drop: string[] = [];
+    let resolved = 0;
     for (const r of results) {
+      if (screenedRef.current.has(r.address)) continue;
       const b = getBalance(r.address);
       const balanceReady = !b.loading && (b.value !== null || b.error);
       const txReady = !b.txLoading && (b.txCount !== null || b.txError);
       if (onlyWithBalance && !balanceReady) continue;
       if (onlyWithTx && !txReady) continue;
+      screenedRef.current.add(r.address);
+      resolved++;
       const passBalance = !onlyWithBalance || hasFunds(b.value);
       const passTx = !onlyWithTx || !!(b.txCount && b.txCount > 0);
       if (!passBalance || !passTx) drop.push(r.address);
     }
+    if (resolved > 0) setScreened(s => s + resolved);
     if (drop.length > 0) {
-      setScreened(s => s + drop.length);
       setRejected(n => n + drop.length);
       onDiscard?.(drop);
     }
