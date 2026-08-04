@@ -130,6 +130,8 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
   const visible = filtering
     ? results.filter(r => {
         const b = getBalance(r.address);
+        // Keep candidates the chain could not answer for — flagged, not hidden.
+        if (b.error || b.txError) return true;
         if (onlyWithBalance && !hasFunds(b.value)) return false;
         if (onlyWithTx && !(b.txCount && b.txCount > 0)) return false;
         return true;
