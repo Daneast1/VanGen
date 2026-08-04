@@ -31,18 +31,22 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
     setRejected(0);
   }, [onlyWithBalance, onlyWithTx]);
 
-  // Auto-check balance for new results
+  // Auto-check balance for new results. Last-tx detail is skipped here: the
+  // vault only needs balance + tx count, so we avoid a third network round-trip
+  // per candidate (that call was the main source of rate-limit errors).
   useEffect(() => {
     for (const r of results) {
       if (!checkedRef.current.has(r.address)) {
         checkedRef.current.add(r.address);
-        checkBalance(r.address, r.network);
+        checkBalance(r.address, r.network, { withLastTx: false });
       }
     }
   }, [results, checkBalance]);
 
-  // On-chain screening: once a candidate's data has resolved, keep it only if
-  // it satisfies the active filters — otherwise discard it and keep searching.
+  // On-chain screening: a candidate is only judged once the chain actually
+  // answered for it. Errored lookups are never treated as "empty" — they stay
+  // unscreened (and visible) so a funded address can't be thrown away because
+  // a public node returned 429.
   useEffect(() => {
     if (!filtering) return;
     const drop: string[] = [];
@@ -50,8 +54,8 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
     for (const r of results) {
       if (screenedRef.current.has(r.address)) continue;
       const b = getBalance(r.address);
-      const balanceReady = !b.loading && (b.value !== null || b.error);
-      const txReady = !b.txLoading && (b.txCount !== null || b.txError);
+      const balanceReady = !b.loading && b.value !== null && !b.error;
+      const txReady = !b.txLoading && b.txCount !== null && !b.txError;
       if (onlyWithBalance && !balanceReady) continue;
       if (onlyWithTx && !txReady) continue;
       screenedRef.current.add(r.address);
@@ -126,6 +130,8 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
   const visible = filtering
     ? results.filter(r => {
         const b = getBalance(r.address);
+        // Keep candidates the chain could not answer for — flagged, not hidden.
+        if (b.error || b.txError) return true;
         if (onlyWithBalance && !hasFunds(b.value)) return false;
         if (onlyWithTx && !(b.txCount && b.txCount > 0)) return false;
         return true;

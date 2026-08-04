@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 type BalanceState = {
   value: string | null;
@@ -13,7 +13,20 @@ type BalanceState = {
   lastTxError: boolean;
 };
 
-const MAX_CONCURRENT = 3;
+type QueueItem = {
+  address: string;
+  network: 'btc' | 'eth';
+  withLastTx: boolean;
+  attempt: number;
+};
+
+/** How many addresses are folded into a single upstream request. */
+const ETH_BATCH = 25;
+const BTC_BATCH = 40;
+/** How many batch requests may be in flight at once. */
+const MAX_BATCHES_IN_FLIGHT = 3;
+/** Retries before an address is reported as an error (never silently "0"). */
+const MAX_ATTEMPTS = 4;
 
 const EMPTY: BalanceState = {
   value: null, loading: false, error: false,
@@ -23,45 +36,103 @@ const EMPTY: BalanceState = {
 
 export function useBalanceChecker() {
   const [balances, setBalances] = useState<Map<string, BalanceState>>(new Map());
-  const queueRef = useRef<{ address: string; network: 'btc' | 'eth' }[]>([]);
-  const activeRef = useRef(0);
+  const queueRef = useRef<QueueItem[]>([]);
+  const lastTxQueueRef = useRef<QueueItem[]>([]);
+  const inFlightRef = useRef(0);
+  const lastTxInFlightRef = useRef(0);
+  const pendingPatchRef = useRef<Map<string, Partial<BalanceState>>>(new Map());
+  const flushTimerRef = useRef<number | null>(null);
+  const aliveRef = useRef(true);
 
+  useEffect(() => () => { aliveRef.current = false; }, []);
+
+  /** Coalesce state writes — a batch of 40 addresses becomes one React update. */
   const update = useCallback((address: string, patch: Partial<BalanceState>) => {
-    setBalances(prev => {
-      const next = new Map(prev);
-      const cur = next.get(address) || EMPTY;
-      next.set(address, { ...cur, ...patch });
-      return next;
-    });
+    const cur = pendingPatchRef.current.get(address) || {};
+    pendingPatchRef.current.set(address, { ...cur, ...patch });
+    if (flushTimerRef.current !== null) return;
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      const patches = pendingPatchRef.current;
+      pendingPatchRef.current = new Map();
+      if (!aliveRef.current || patches.size === 0) return;
+      setBalances(prev => {
+        const next = new Map(prev);
+        patches.forEach((p, addr) => {
+          next.set(addr, { ...(next.get(addr) || EMPTY), ...p });
+        });
+        return next;
+      });
+    }, 120);
   }, []);
 
-  const drain = useCallback(() => {
-    while (activeRef.current < MAX_CONCURRENT && queueRef.current.length > 0) {
-      const item = queueRef.current.shift()!;
-      activeRef.current++;
+  const drainRef = useRef<() => void>(() => {});
 
-      update(item.address, { loading: true, error: false, txLoading: true, txError: false, lastTxLoading: true, lastTxError: false });
+  const requeue = useCallback((items: QueueItem[]) => {
+    const retryable = items.filter(i => i.attempt + 1 < MAX_ATTEMPTS);
+    const dead = items.filter(i => i.attempt + 1 >= MAX_ATTEMPTS);
+    dead.forEach(i => update(i.address, {
+      loading: false, error: true, txLoading: false, txError: true,
+    }));
+    if (retryable.length === 0) return;
+    const delay = 400 * Math.pow(2, retryable[0].attempt); // 400 / 800 / 1600ms
+    window.setTimeout(() => {
+      queueRef.current.push(...retryable.map(i => ({ ...i, attempt: i.attempt + 1 })));
+      drainRef.current();
+    }, delay);
+  }, [update]);
+
+  const drain = useCallback(() => {
+    // ── Balance + tx-count batches ──
+    while (inFlightRef.current < MAX_BATCHES_IN_FLIGHT && queueRef.current.length > 0) {
+      const network = queueRef.current[0].network;
+      const size = network === 'eth' ? ETH_BATCH : BTC_BATCH;
+      const batch: QueueItem[] = [];
+      // Take up to `size` consecutive items of the same network.
+      queueRef.current = queueRef.current.filter(item => {
+        if (batch.length < size && item.network === network) {
+          batch.push(item);
+          return false;
+        }
+        return true;
+      });
+      if (batch.length === 0) break;
+      inFlightRef.current++;
+      batch.forEach(i => update(i.address, {
+        loading: true, error: false, txLoading: true, txError: false,
+      }));
 
       (async () => {
-        // Balance
+        const addresses = batch.map(i => i.address);
         try {
-          const balance = item.network === 'eth'
-            ? await fetchEthBalance(item.address)
-            : await fetchBtcBalance(item.address);
-          update(item.address, { value: balance, loading: false, error: false });
+          const res = network === 'eth'
+            ? await fetchEthBatch(addresses)
+            : await fetchBtcBatch(addresses);
+          const missing: QueueItem[] = [];
+          for (const item of batch) {
+            const r = res.get(item.address);
+            if (!r) { missing.push(item); continue; }
+            update(item.address, {
+              value: r.balance, loading: false, error: false,
+              txCount: r.txCount, txLoading: false, txError: false,
+            });
+            if (item.withLastTx) lastTxQueueRef.current.push(item);
+          }
+          if (missing.length) requeue(missing);
         } catch {
-          update(item.address, { value: null, loading: false, error: true });
+          requeue(batch);
         }
-        // Tx count
-        try {
-          const tx = item.network === 'eth'
-            ? await fetchEthTxCount(item.address)
-            : await fetchBtcTxCount(item.address);
-          update(item.address, { txCount: tx, txLoading: false, txError: false });
-        } catch {
-          update(item.address, { txCount: null, txLoading: false, txError: true });
-        }
-        // Last tx info
+        inFlightRef.current--;
+        drainRef.current();
+      })();
+    }
+
+    // ── Last-tx detail (lowest priority, never blocks screening) ──
+    while (lastTxInFlightRef.current < 2 && lastTxQueueRef.current.length > 0) {
+      const item = lastTxQueueRef.current.shift()!;
+      lastTxInFlightRef.current++;
+      update(item.address, { lastTxLoading: true, lastTxError: false });
+      (async () => {
         try {
           const last = item.network === 'eth'
             ? await fetchEthLastTx(item.address)
@@ -75,16 +146,26 @@ export function useBalanceChecker() {
         } catch {
           update(item.address, { lastTxLoading: false, lastTxError: true });
         }
-        activeRef.current--;
-        drain();
+        lastTxInFlightRef.current--;
+        drainRef.current();
       })();
     }
-  }, [update]);
+  }, [update, requeue]);
 
-  const checkBalance = useCallback((address: string, network: 'btc' | 'eth') => {
-    queueRef.current.push({ address, network });
-    drain();
-  }, [drain]);
+  drainRef.current = drain;
+
+  const checkBalance = useCallback(
+    (address: string, network: 'btc' | 'eth', opts?: { withLastTx?: boolean }) => {
+      queueRef.current.push({
+        address,
+        network,
+        withLastTx: opts?.withLastTx !== false,
+        attempt: 0,
+      });
+      drainRef.current();
+    },
+    []
+  );
 
   const getBalance = useCallback((address: string): BalanceState => {
     return balances.get(address) || EMPTY;
@@ -93,7 +174,7 @@ export function useBalanceChecker() {
   return { checkBalance, getBalance };
 }
 
-async function fetchWithTimeout(url: string, options?: RequestInit, ms = 6000): Promise<Response> {
+async function fetchWithTimeout(url: string, options?: RequestInit, ms = 8000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
@@ -103,127 +184,104 @@ async function fetchWithTimeout(url: string, options?: RequestInit, ms = 6000): 
   }
 }
 
-async function tryJsonRpc(url: string, address: string): Promise<string> {
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getBalance',
-      params: [address, 'latest'],
-      id: 1,
-    }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-  if (!data.result) throw new Error('No result');
-  const wei = BigInt(data.result);
-  return formatWeiToEth(wei);
-}
+type ChainRecord = { balance: string; txCount: number };
 
-async function tryJsonRpcTxCount(url: string, address: string): Promise<number> {
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getTransactionCount',
-      params: [address, 'latest'],
-      id: 1,
-    }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-  if (!data.result) throw new Error('No result');
-  return Number(BigInt(data.result));
-}
-
+// ── Ethereum: one batched JSON-RPC POST covers balance + nonce for N addresses ──
 const ETH_RPC_ENDPOINTS = [
   'https://eth.llamarpc.com',
-  'https://rpc.ankr.com/eth',
   'https://ethereum-rpc.publicnode.com',
+  'https://rpc.ankr.com/eth',
   'https://1rpc.io/eth',
 ];
 
-async function fetchEthBalance(address: string): Promise<string> {
-  const errors: string[] = [];
+async function fetchEthBatch(addresses: string[]): Promise<Map<string, ChainRecord>> {
+  const payload = addresses.flatMap((addr, i) => ([
+    { jsonrpc: '2.0', id: `b${i}`, method: 'eth_getBalance', params: [addr, 'latest'] },
+    { jsonrpc: '2.0', id: `n${i}`, method: 'eth_getTransactionCount', params: [addr, 'latest'] },
+  ]));
+
+  let lastErr: unknown;
   for (const endpoint of ETH_RPC_ENDPOINTS) {
     try {
-      return await tryJsonRpc(endpoint, address);
+      const res = await fetchWithTimeout(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }, 12000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error('Batch RPC unsupported');
+      const byId = new Map<string, string>();
+      for (const entry of data) {
+        if (entry?.error || typeof entry?.result !== 'string') continue;
+        byId.set(String(entry.id), entry.result);
+      }
+      const out = new Map<string, ChainRecord>();
+      addresses.forEach((addr, i) => {
+        const bal = byId.get(`b${i}`);
+        const nonce = byId.get(`n${i}`);
+        if (bal === undefined || nonce === undefined) return; // retried by caller
+        out.set(addr, {
+          balance: formatWeiToEth(BigInt(bal)),
+          txCount: Number(BigInt(nonce)),
+        });
+      });
+      if (out.size === 0) throw new Error('Empty batch response');
+      return out;
     } catch (e) {
-      errors.push(`${endpoint}: ${e}`);
+      lastErr = e;
     }
   }
-  throw new Error(`All ETH providers failed: ${errors.join('; ')}`);
+  throw new Error(`All ETH providers failed: ${lastErr}`);
 }
 
-async function fetchEthTxCount(address: string): Promise<number> {
-  const errors: string[] = [];
-  for (const endpoint of ETH_RPC_ENDPOINTS) {
-    try {
-      return await tryJsonRpcTxCount(endpoint, address);
-    } catch (e) {
-      errors.push(`${endpoint}: ${e}`);
+// ── Bitcoin: blockchain.info multi-address endpoint returns balance + n_tx together ──
+async function fetchBtcBatch(addresses: string[]): Promise<Map<string, ChainRecord>> {
+  const out = new Map<string, ChainRecord>();
+  try {
+    const res = await fetchWithTimeout(
+      `https://blockchain.info/balance?active=${addresses.join('|')}&cors=true`,
+      undefined,
+      12000
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as Record<string, { final_balance: number; n_tx: number }>;
+    for (const addr of addresses) {
+      const rec = data[addr];
+      if (!rec) continue;
+      out.set(addr, {
+        balance: formatSatoshiToBtc(BigInt(rec.final_balance ?? 0)),
+        txCount: Number(rec.n_tx ?? 0),
+      });
     }
-  }
-  throw new Error(`All ETH tx providers failed: ${errors.join('; ')}`);
-}
-
-async function fetchBtcBalance(address: string): Promise<string> {
-  const errors: string[] = [];
-
-  try {
-    const res = await fetchWithTimeout(`https://blockchain.info/q/addressbalance/${address}?confirmations=1`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const satoshis = BigInt(text.trim());
-    return formatSatoshiToBtc(satoshis);
-  } catch (e) {
-    errors.push(`Blockchain.info: ${e}`);
+    if (out.size > 0) return out;
+  } catch {
+    // fall through to per-address provider
   }
 
-  try {
-    const res = await fetchWithTimeout(`https://blockstream.info/api/address/${address}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const funded = BigInt(data.chain_stats.funded_txo_sum);
-    const spent = BigInt(data.chain_stats.spent_txo_sum);
-    return formatSatoshiToBtc(funded - spent);
-  } catch (e) {
-    errors.push(`Blockstream: ${e}`);
+  // Fallback: Blockstream, one request per address, small concurrency.
+  const missing = addresses.filter(a => !out.has(a));
+  const CONCURRENCY = 4;
+  for (let i = 0; i < missing.length; i += CONCURRENCY) {
+    const slice = missing.slice(i, i + CONCURRENCY);
+    await Promise.all(slice.map(async addr => {
+      try {
+        const res = await fetchWithTimeout(`https://blockstream.info/api/address/${addr}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        const funded = BigInt(d.chain_stats?.funded_txo_sum ?? 0) + BigInt(d.mempool_stats?.funded_txo_sum ?? 0);
+        const spent = BigInt(d.chain_stats?.spent_txo_sum ?? 0) + BigInt(d.mempool_stats?.spent_txo_sum ?? 0);
+        out.set(addr, {
+          balance: formatSatoshiToBtc(funded - spent),
+          txCount: Number(d.chain_stats?.tx_count ?? 0) + Number(d.mempool_stats?.tx_count ?? 0),
+        });
+      } catch {
+        // leave missing → caller retries
+      }
+    }));
   }
-
-  throw new Error(`All BTC providers failed: ${errors.join('; ')}`);
-}
-
-async function fetchBtcTxCount(address: string): Promise<number> {
-  const errors: string[] = [];
-
-  try {
-    const res = await fetchWithTimeout(`https://blockstream.info/api/address/${address}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const chain = Number(data.chain_stats?.tx_count ?? 0);
-    const mem = Number(data.mempool_stats?.tx_count ?? 0);
-    return chain + mem;
-  } catch (e) {
-    errors.push(`Blockstream: ${e}`);
-  }
-
-  try {
-    const res = await fetchWithTimeout(`https://blockchain.info/q/getreceivedbyaddress/${address}`);
-    // Fallback: blockchain.info doesn't expose tx count cleanly via q/, try rawaddr
-    const res2 = await fetchWithTimeout(`https://blockchain.info/rawaddr/${address}?limit=0`);
-    if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
-    const data = await res2.json();
-    return Number(data.n_tx ?? 0);
-  } catch (e) {
-    errors.push(`Blockchain.info: ${e}`);
-  }
-
-  throw new Error(`All BTC tx providers failed: ${errors.join('; ')}`);
+  if (out.size === 0) throw new Error('All BTC providers failed');
+  return out;
 }
 
 // ── Last transaction info ──────────────────────────────────────────────────
