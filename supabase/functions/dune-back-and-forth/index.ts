@@ -46,6 +46,58 @@ async function executeQuery(queryId: number, apiKey: string) {
   return rj.result?.rows ?? [];
 }
 
+type Row = Record<string, unknown>;
+
+const num = (v: unknown) => {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Keeps only pairs that behave like a closed loop:
+ *  - both addresses' ONLY counterparty (within the result set) is each other
+ *  - the relationship is genuinely bidirectional (both directions present when
+ *    directional counts are available)
+ *  - sustained activity (>= minInteractions) and reasonably balanced flow
+ */
+function filterExclusiveLoops(rows: Row[], minInteractions = 4): Row[] {
+  const counterparties = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const a = String(r.address_a ?? "");
+    const b = String(r.address_b ?? "");
+    if (!a || !b) continue;
+    if (!counterparties.has(a)) counterparties.set(a, new Set());
+    if (!counterparties.has(b)) counterparties.set(b, new Set());
+    counterparties.get(a)!.add(b);
+    counterparties.get(b)!.add(a);
+  }
+
+  const scored = rows.filter((r) => {
+    const a = String(r.address_a ?? "");
+    const b = String(r.address_b ?? "");
+    if (!a || !b) return false;
+
+    // exclusivity: neither side talks to anyone else in the set
+    if ((counterparties.get(a)?.size ?? 0) !== 1) return false;
+    if ((counterparties.get(b)?.size ?? 0) !== 1) return false;
+
+    const total = num(r.total_interactions);
+    if (total < minInteractions) return false;
+
+    // directional balance when the query exposes per-direction counts
+    const ab = num(r.a_to_b_txs ?? r.a_to_b ?? r.txs_a_to_b);
+    const ba = num(r.b_to_a_txs ?? r.b_to_a ?? r.txs_b_to_a);
+    if (ab > 0 || ba > 0) {
+      if (ab === 0 || ba === 0) return false;
+      const ratio = Math.min(ab, ba) / Math.max(ab, ba);
+      if (ratio < 0.2) return false; // one-sided drain, not a real loop
+    }
+    return true;
+  });
+
+  return scored.sort((x, y) => num(y.total_interactions) - num(x.total_interactions));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -53,14 +105,17 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("DUNE_API_KEY");
     if (!apiKey) throw new Error("DUNE_API_KEY not configured");
 
-    const { chain } = await req.json();
+    const { chain, exclusiveLoops } = await req.json();
     if (!["btc", "eth"].includes(chain)) throw new Error("chain must be 'btc' or 'eth'");
 
-    const rows = await executeQuery(QUERY_IDS[chain as "btc" | "eth"], apiKey);
+    const allRows = await executeQuery(QUERY_IDS[chain as "btc" | "eth"], apiKey);
+    const rows = exclusiveLoops ? filterExclusiveLoops(allRows) : allRows;
 
-    return new Response(JSON.stringify({ rows }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ rows, totalRows: allRows.length, filtered: !!exclusiveLoops }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("dune-back-and-forth error:", msg);
