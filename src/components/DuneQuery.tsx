@@ -103,6 +103,8 @@ const signalDirectionIcon: Record<string, string> = {
 
 export default function DuneQuery() {
   const [chain, setChain] = useState<'btc' | 'eth'>('btc');
+  const [exclusiveLoops, setExclusiveLoops] = useState(false);
+  const [totalRows, setTotalRows] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -115,22 +117,25 @@ export default function DuneQuery() {
   const run = async () => {
     setError(null);
     setRows([]);
+    setTotalRows(null);
     setAnalyses({});
     setAnalyzeError({});
     setLoading(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke('dune-back-and-forth', {
-        body: { chain },
+        body: { chain, exclusiveLoops },
       });
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
       setRows(data?.rows ?? []);
+      setTotalRows(typeof data?.totalRows === 'number' ? data.totalRows : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Query failed');
     } finally {
       setLoading(false);
     }
   };
+
 
   const analyze = async (addr: string) => {
     setAnalyzing(s => ({ ...s, [addr]: true }));
@@ -280,6 +285,21 @@ export default function DuneQuery() {
             </button>
           </div>
         </div>
+        <label className="flex items-start gap-2 rounded-md border border-border bg-background px-3 py-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={exclusiveLoops}
+            onChange={e => setExclusiveLoops(e.target.checked)}
+            className="mt-0.5 accent-primary"
+          />
+          <span className="text-xs">
+            <span className="font-medium text-foreground">Closed-loop pairs only</span>
+            <span className="block text-muted-foreground mt-0.5">
+              Keeps only wallets whose sole counterparty is each other — sustained, two-way,
+              balanced flow (≥4 interactions). Leave off for the original broad scan.
+            </span>
+          </span>
+        </label>
 
         <button
           onClick={run}
@@ -300,11 +320,20 @@ export default function DuneQuery() {
         )}
       </div>
 
+      {!loading && rows.length === 0 && totalRows !== null && (
+        <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground">
+          No closed-loop pairs found ({totalRows} pair{totalRows === 1 ? '' : 's'} scanned).
+        </div>
+      )}
+
       {rows.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-4">
           <h3 className="text-sm font-semibold mb-3 text-foreground">
-            Results ({rows.length} pair{rows.length === 1 ? '' : 's'} with back-and-forth activity)
+            Results ({rows.length} pair{rows.length === 1 ? '' : 's'}
+            {exclusiveLoops ? ' in a closed back-and-forth loop' : ' with back-and-forth activity'}
+            {exclusiveLoops && totalRows !== null ? ` · filtered from ${totalRows}` : ''})
           </h3>
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs font-mono">
               <thead>
