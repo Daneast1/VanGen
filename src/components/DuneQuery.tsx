@@ -103,6 +103,8 @@ const signalDirectionIcon: Record<string, string> = {
 
 export default function DuneQuery() {
   const [chain, setChain] = useState<'btc' | 'eth'>('btc');
+  const [exclusiveLoops, setExclusiveLoops] = useState(false);
+  const [totalRows, setTotalRows] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -115,22 +117,25 @@ export default function DuneQuery() {
   const run = async () => {
     setError(null);
     setRows([]);
+    setTotalRows(null);
     setAnalyses({});
     setAnalyzeError({});
     setLoading(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke('dune-back-and-forth', {
-        body: { chain },
+        body: { chain, exclusiveLoops },
       });
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
       setRows(data?.rows ?? []);
+      setTotalRows(typeof data?.totalRows === 'number' ? data.totalRows : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Query failed');
     } finally {
       setLoading(false);
     }
   };
+
 
   const analyze = async (addr: string) => {
     setAnalyzing(s => ({ ...s, [addr]: true }));
