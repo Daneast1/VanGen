@@ -311,7 +311,7 @@ export function useWallet() {
         }
 
         const { bitcoin, keyPair, payment } = await btcPayment(account.privHex, account.addrType || 'p2pkh');
-        let outputScript: Buffer;
+        let outputScript: Uint8Array;
         try {
           outputScript = bitcoin.address.toOutputScript(to, bitcoin.networks.bitcoin);
         } catch {
