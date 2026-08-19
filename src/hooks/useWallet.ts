@@ -84,7 +84,7 @@ async function btcPayment(privHex: string, addrType: BtcAddrType) {
   const tinysecp = await import('tiny-secp256k1');
   const ECPair = ECPairFactory(tinysecp as any);
   const keyPair = ECPair.fromPrivateKey(hexToBytes(privHex), { compressed: true });
-  const pubkey = Buffer.from(keyPair.publicKey);
+  const pubkey = new Uint8Array(keyPair.publicKey);
   const network = bitcoin.networks.bitcoin;
   if (addrType === 'p2pkh') return { bitcoin, keyPair, payment: bitcoin.payments.p2pkh({ pubkey, network }) };
   if (addrType === 'bech32') return { bitcoin, keyPair, payment: bitcoin.payments.p2wpkh({ pubkey, network }) };
@@ -332,7 +332,7 @@ export function useWallet() {
           const input: any = { hash: u.txid, index: u.vout };
           if (account.addrType === 'p2pkh') {
             const rawRes = await fetch(`${BLOCKSTREAM}/tx/${u.txid}/hex`);
-            input.nonWitnessUtxo = Buffer.from(await rawRes.text(), 'hex');
+            input.nonWitnessUtxo = hexToBytes(await rawRes.text());
           } else {
             input.witnessUtxo = { script: payment.output!, value: BigInt(u.value) };
             if (account.addrType === 'p2sh') input.redeemScript = (payment as any).redeem.output;
