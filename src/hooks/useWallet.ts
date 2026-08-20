@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export type WalletNetwork = 'btc' | 'eth';
 export type BtcAddrType = 'p2pkh' | 'p2sh' | 'bech32';
