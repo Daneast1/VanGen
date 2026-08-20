@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export type WalletNetwork = 'btc' | 'eth';
 export type BtcAddrType = 'p2pkh' | 'p2sh' | 'bech32';
@@ -105,8 +105,28 @@ export async function deriveAddress(privHex: string, network: WalletNetwork, add
   return payment.address;
 }
 
+const STORE_KEY = 'ckg_wallets_v1';
+const ACTIVE_KEY = 'ckg_wallet_active_v1';
+
+function loadStored(): WalletAccount[] {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((w: any) => w?.address && w?.privHex) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persist(list: WalletAccount[]) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(list));
+  } catch { /* storage unavailable */ }
+}
+
 export function useWallet() {
-  const [account, setAccount] = useState<WalletAccount | null>(null);
+  const [account, setAccountState] = useState<WalletAccount | null>(null);
+  const [saved, setSaved] = useState<WalletAccount[]>(() => loadStored());
   const [balance, setBalance] = useState<string | null>(null);
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
   const [txs, setTxs] = useState<WalletTx[]>([]);
@@ -115,14 +135,52 @@ export function useWallet() {
   const [error, setError] = useState<string | null>(null);
   const [feeRates, setFeeRates] = useState<{ slow: number; normal: number; fast: number } | null>(null);
 
-  const disconnect = useCallback(() => {
-    setAccount(null);
+  const setActive = useCallback((acct: WalletAccount | null) => {
+    setAccountState(acct);
     setBalance(null);
     setUnconfirmed(null);
     setTxs([]);
     setError(null);
-    setFeeRates(null);
+    try {
+      if (acct) localStorage.setItem(ACTIVE_KEY, acct.address);
+      else localStorage.removeItem(ACTIVE_KEY);
+    } catch { /* storage unavailable */ }
   }, []);
+
+  // Restore the last active wallet on mount so it survives app restarts.
+  useEffect(() => {
+    const list = loadStored();
+    if (!list.length) return;
+    let last: string | null = null;
+    try { last = localStorage.getItem(ACTIVE_KEY); } catch { /* ignore */ }
+    const match = list.find(w => w.address === last) || list[0];
+    if (match) setAccountState(match);
+  }, []);
+
+  /** Lock the session but keep the wallet in the saved list. */
+  const disconnect = useCallback(() => {
+    setActive(null);
+    setFeeRates(null);
+  }, [setActive]);
+
+  /** Permanently remove a saved wallet from this device. */
+  const forget = useCallback((address: string) => {
+    setSaved(prev => {
+      const next = prev.filter(w => w.address !== address);
+      persist(next);
+      return next;
+    });
+    setAccountState(prev => {
+      if (prev?.address !== address) return prev;
+      try { localStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ }
+      return null;
+    });
+  }, []);
+
+  const switchTo = useCallback((address: string) => {
+    const match = loadStored().find(w => w.address === address);
+    if (match) setActive(match);
+  }, [setActive]);
 
   const connect = useCallback(
     async (keyInput: string, network: WalletNetwork, addrType: BtcAddrType = 'p2pkh') => {
@@ -138,20 +196,24 @@ export function useWallet() {
           privHex,
           wif: network === 'btc' ? await hexToWif(privHex, true) : undefined,
         };
-        setAccount(acct);
-        setBalance(null);
-        setTxs([]);
+        setSaved(prev => {
+          const next = [acct, ...prev.filter(w => w.address !== acct.address)];
+          persist(next);
+          return next;
+        });
+        setActive(acct);
         return acct;
       } catch (e: any) {
         setError(e?.message || 'Failed to unlock wallet');
-        setAccount(null);
+        setAccountState(null);
         return null;
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [setActive],
   );
+
 
   const refresh = useCallback(async (acct: WalletAccount | null) => {
     const a = acct ?? account;
@@ -369,6 +431,6 @@ export function useWallet() {
 
   return {
     account, balance, unconfirmed, txs, loading, sending, error, feeRates,
-    connect, disconnect, refresh, send, estimateMax, setError,
+    saved, connect, disconnect, refresh, send, estimateMax, setError, switchTo, forget,
   };
 }
