@@ -431,6 +431,6 @@ export function useWallet() {
 
   return {
     account, balance, unconfirmed, txs, loading, sending, error, feeRates,
-    connect, disconnect, refresh, send, estimateMax, setError,
+    saved, connect, disconnect, refresh, send, estimateMax, setError, switchTo, forget,
   };
 }
