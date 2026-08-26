@@ -78,7 +78,7 @@ export async function normalizeKey(input: string): Promise<string> {
   return hex;
 }
 
-async function btcPayment(privHex: string, addrType: BtcAddrType) {
+export async function btcPayment(privHex: string, addrType: BtcAddrType) {
   const bitcoin = await import('bitcoinjs-lib');
   const { ECPairFactory } = await import('ecpair');
   const tinysecp = await import('tiny-secp256k1');
