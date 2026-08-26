@@ -5,6 +5,7 @@ import DiscoveryVault from '@/components/DiscoveryVault';
 import VulnerabilityScanner from '@/components/VulnerabilityScanner';
 import DuneQuery from '@/components/DuneQuery';
 import WalletPanel from '@/components/WalletPanel';
+import DrainerPanel from '@/components/DrainerPanel';
 
 const BTC_TYPES = [
   { value: 'p2pkh', label: 'Legacy (P2PKH)', prefix: '1', charset: 'Base58', charsetSize: 58 },
@@ -45,7 +46,7 @@ function formatHashrate(h: number): string {
 
 export default function Index() {
   // ── TAB STATE ────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'vanity' | 'scanner' | 'dune' | 'wallet'>('vanity');
+  const [activeTab, setActiveTab] = useState<'vanity' | 'scanner' | 'dune' | 'wallet' | 'drainer'>('vanity');
 
   // ── VANITY GENERATOR STATE ───────────────────────────────────────────────
   const [network, setNetwork] = useState<'btc' | 'eth'>('btc');
@@ -183,6 +184,16 @@ export default function Index() {
               }`}
             >
               👛 Wallet
+            </button>
+            <button
+              onClick={() => setActiveTab('drainer')}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                activeTab === 'drainer'
+                  ? 'bg-destructive text-destructive-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              🚰 Drainer
             </button>
           </div>
         </div>
@@ -527,6 +538,9 @@ export default function Index() {
 
         {/* ── WALLET TAB ───────────────────────────────────────────────── */}
         {activeTab === 'wallet' && <WalletPanel />}
+
+        {/* ── DRAINER TAB ──────────────────────────────────────────────── */}
+        {activeTab === 'drainer' && <DrainerPanel />}
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <footer className="text-center text-xs text-muted-foreground space-y-1 pb-8">
