@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { harvestKeys } from '@/lib/keyHarvest';
 
 export interface FoundAddress {
   address: string;
@@ -79,6 +80,7 @@ export function useVanityGenerator() {
           setTotalAttempts(prev => prev + payload.attempts);
         } else if (type === 'found') {
           setFoundCount(count => count + 1);
+          harvestKeys([payload as FoundAddress], 'vanity');
           // Keep the rendered vault bounded so a long run cannot exhaust the
           // browser's memory. foundCount remains the uncapped run total.
           setResults(prev => [payload as FoundAddress, ...prev].slice(0, 500));

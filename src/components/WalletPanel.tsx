@@ -79,18 +79,73 @@ export default function WalletPanel() {
     [to, amount, w.sending],
   );
 
+  const openWallet = (address: string) => {
+    w.switchTo(address);
+    setPickerOpen(false);
+    setAdding(false);
+  };
+
+  const picker = pickerOpen ? (
+    <WalletPicker
+      wallets={w.saved}
+      activeAddress={w.account?.address}
+      onPick={openWallet}
+      onDelete={addr => w.forget(addr)}
+      onClose={() => setPickerOpen(false)}
+    />
+  ) : null;
+
   // ── LOCKED STATE ────────────────────────────────────────────────────────
   if (!w.account) {
+    const showForm = adding || w.saved.length === 0;
     return (
       <div className="animate-fade-in max-w-xl mx-auto space-y-4">
+        {picker}
         <div className="rounded-xl border border-border bg-card p-6 space-y-5">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Open Wallet</h2>
-            <p className="text-xs text-muted-foreground">
-              Import any key from the Discovery Vault — WIF or 64-char hex. Signing happens locally in your browser.
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">{showForm ? 'Add Wallet' : 'Open Wallet'}</h2>
+              <p className="text-xs text-muted-foreground">
+                {showForm
+                  ? 'Import a WIF or 64-char hex key. Signing happens locally.'
+                  : `${w.saved.length} wallet${w.saved.length === 1 ? '' : 's'} saved on this device.`}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {w.saved.length > 0 && (
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  title="Saved wallets"
+                  className="rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:border-primary/40"
+                >
+                  <WalletCards className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => setAdding(a => !a)}
+                title={showForm ? 'Close' : 'Add wallet'}
+                className={`rounded-lg border p-2 transition-all ${
+                  showForm && w.saved.length > 0
+                    ? 'border-primary/50 bg-primary/10 text-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                }`}
+              >
+                {showForm && w.saved.length > 0 ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
 
+          {!showForm && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="w-full rounded-lg border border-border px-4 py-6 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            >
+              Tap to choose a saved wallet
+            </button>
+          )}
+
+          {showForm && (
+            <>
           <div className="inline-flex w-full rounded-lg border border-border bg-background p-1 gap-1">
             {(['btc', 'eth'] as WalletNetwork[]).map(n => (
               <button
@@ -128,39 +183,9 @@ export default function WalletPanel() {
             </div>
           )}
 
-          {w.saved.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Saved wallets ({w.saved.length})
-              </label>
-              <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
-                {w.saved.map(s => (
-                  <div key={s.address} className="flex items-center gap-2">
-                    <button
-                      onClick={() => w.switchTo(s.address)}
-                      className="flex-1 min-w-0 rounded-lg border border-border px-3 py-2 text-left hover:border-primary/40"
-                    >
-                      <div className="font-mono text-xs truncate">{short(s.address)}</div>
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {s.network === 'btc' ? `Bitcoin · ${s.addrType}` : 'Ethereum'}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => w.forget(s.address)}
-                      title="Forget wallet"
-                      className="shrink-0 rounded-md border border-border px-2 py-2 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <div className="space-y-2">
             <label className="text-xs uppercase tracking-wider text-muted-foreground">
-              {w.saved.length > 0 ? 'Add another wallet' : 'Private key'}
+              Private key
             </label>
             <div className="relative">
               <input
@@ -201,8 +226,10 @@ export default function WalletPanel() {
           </button>
 
           <p className="text-[10px] text-muted-foreground text-center">
-            Keys are held in memory only — never stored, never transmitted.
+            Keys stay on this device — never transmitted.
           </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -211,29 +238,25 @@ export default function WalletPanel() {
   // ── UNLOCKED STATE ──────────────────────────────────────────────────────
   return (
     <div className="animate-fade-in max-w-3xl mx-auto space-y-4">
-      {/* Saved wallet switcher */}
-      {w.saved.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {w.saved.map(s => (
-            <button
-              key={s.address}
-              onClick={() => w.switchTo(s.address)}
-              className={`shrink-0 rounded-lg border px-3 py-2 text-left transition-all ${
-                s.address === w.account!.address
-                  ? s.network === 'btc'
-                    ? 'border-primary/60 bg-primary/10'
-                    : 'border-secondary/60 bg-secondary/10'
-                  : 'border-border hover:border-primary/30'
-              }`}
-            >
-              <div className="font-mono text-[11px]">{short(s.address)}</div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {s.network === 'btc' ? s.addrType : 'eth'}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      {picker}
+      {/* Wallet controls */}
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs hover:border-primary/40"
+        >
+          <WalletCards className="h-4 w-4" />
+          Saved wallets ({w.saved.length})
+        </button>
+        <button
+          onClick={() => { w.disconnect(); setAdding(true); }}
+          title="Add wallet"
+          className="rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:border-primary/40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
 
       {/* Balance card */}
       <div className={`rounded-xl border p-6 space-y-4 ${
