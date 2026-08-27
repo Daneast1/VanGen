@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { harvestKeys } from '@/lib/keyHarvest';
 
 export interface FoundAddress {
   address: string;
