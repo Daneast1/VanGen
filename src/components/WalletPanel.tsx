@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, WalletCards, X, Trash2 } from 'lucide-react';
 import { useWallet, type BtcAddrType, type WalletNetwork } from '@/hooks/useWallet';
 import { toast } from '@/hooks/use-toast';
 
@@ -19,6 +20,8 @@ export default function WalletPanel() {
   const [keyInput, setKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [revealPriv, setRevealPriv] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
@@ -281,14 +284,6 @@ export default function WalletPanel() {
             Lock
           </button>
         </div>
-        <div className="flex justify-end -mt-2">
-          <button
-            onClick={() => w.forget(w.account!.address)}
-            className="text-[10px] text-muted-foreground hover:text-destructive"
-          >
-            Forget this wallet
-          </button>
-        </div>
 
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
@@ -459,6 +454,108 @@ export default function WalletPanel() {
       <p className="text-center text-[10px] text-muted-foreground">
         Live wallet mode uses public block explorers for balances and broadcasting. Generation stays fully offline.
       </p>
+    </div>
+  );
+}
+
+// ── Press-and-hold delete ─────────────────────────────────────────────────
+function HoldToDelete({ onConfirm }: { onConfirm: () => void }) {
+  const [pct, setPct] = useState(0);
+  const timer = useRef<number | null>(null);
+
+  const stop = () => {
+    if (timer.current) window.clearInterval(timer.current);
+    timer.current = null;
+    setPct(0);
+  };
+
+  const begin = () => {
+    stop();
+    const started = Date.now();
+    timer.current = window.setInterval(() => {
+      const p = Math.min(100, ((Date.now() - started) / 1200) * 100);
+      setPct(p);
+      if (p >= 100) {
+        stop();
+        onConfirm();
+      }
+    }, 40);
+  };
+
+  return (
+    <button
+      onPointerDown={begin}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      title="Press and hold to delete"
+      className="relative shrink-0 overflow-hidden rounded-md border border-border p-2 text-muted-foreground hover:text-destructive hover:border-destructive/40"
+    >
+      <span
+        className="absolute inset-0 bg-destructive/30 transition-none"
+        style={{ width: `${pct}%` }}
+      />
+      <Trash2 className="relative h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+// ── Saved wallets sheet ───────────────────────────────────────────────────
+function WalletPicker({
+  wallets,
+  activeAddress,
+  onPick,
+  onDelete,
+  onClose,
+}: {
+  wallets: { address: string; network: string; addrType?: string }[];
+  activeAddress?: string;
+  onPick: (address: string) => void;
+  onDelete: (address: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card p-5 space-y-3 max-h-[70vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Saved wallets ({wallets.length})</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {wallets.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No wallets saved yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {wallets.map(s => (
+              <div key={s.address} className="flex items-center gap-2">
+                <button
+                  onClick={() => onPick(s.address)}
+                  className={`flex-1 min-w-0 rounded-lg border px-3 py-2.5 text-left transition-all ${
+                    s.address === activeAddress
+                      ? 'border-primary/60 bg-primary/10'
+                      : 'border-border hover:border-primary/40'
+                  }`}
+                >
+                  <div className="font-mono text-xs truncate">{short(s.address)}</div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {s.network === 'btc' ? `Bitcoin · ${s.addrType}` : 'Ethereum'}
+                  </div>
+                </button>
+                <HoldToDelete onConfirm={() => onDelete(s.address)} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-[10px] text-muted-foreground text-center">
+          Tap a wallet to open it · press and hold the bin icon to delete
+        </p>
+      </div>
     </div>
   );
 }
