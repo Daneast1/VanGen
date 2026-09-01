@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useVanityGenerator } from '@/hooks/useVanityGenerator';
+import type { FoundAddress } from '@/hooks/useVanityGenerator';
+import type { ScanResult } from '@/hooks/useVulnerabilityScanner';
+import { usePassiveWallets } from '@/hooks/usePassiveWallets';
 import PulseBackground from '@/components/PulseBackground';
 import DiscoveryVault from '@/components/DiscoveryVault';
 import VulnerabilityScanner from '@/components/VulnerabilityScanner';
@@ -47,6 +50,32 @@ function formatHashrate(h: number): string {
 export default function Index() {
   // ── TAB STATE ────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'vanity' | 'scanner' | 'dune' | 'wallet' | 'drainer'>('vanity');
+  const [walletSubTab, setWalletSubTab] = useState<'active' | 'passive'>('active');
+
+  // ── PASSIVE WALLETS ──────────────────────────────────────────────────────
+  const passive = usePassiveWallets();
+
+  const handleVanityResults = useCallback((results: FoundAddress[]) => {
+    passive.addAddresses(results.map(r => ({
+      address: r.address,
+      privateKey: r.privateKey,
+      network: r.network,
+      addressType: r.addressType,
+      source: 'vanity' as const,
+      timestamp: r.timestamp,
+    })));
+  }, [passive.addAddresses]);
+
+  const handleScannerResults = useCallback((results: ScanResult[]) => {
+    passive.addAddresses(results.map(r => ({
+      address: r.address,
+      privateKey: r.privateKey,
+      network: r.network,
+      addressType: r.addressType,
+      source: 'scanner' as const,
+      timestamp: r.timestamp,
+    })));
+  }, [passive.addAddresses]);
 
   // ── VANITY GENERATOR STATE ───────────────────────────────────────────────
   const [network, setNetwork] = useState<'btc' | 'eth'>('btc');
@@ -108,6 +137,15 @@ export default function Index() {
       targetAddress: targetAddress || undefined,
     });
   };
+
+  // Push new vanity results into passive store
+  const prevVanityLenRef = useRef(0);
+  useEffect(() => {
+    if (gen.results.length === 0) return;
+    const newOnes = gen.results.slice(0, gen.results.length - prevVanityLenRef.current);
+    if (newOnes.length > 0) handleVanityResults(newOnes);
+    prevVanityLenRef.current = gen.results.length;
+  }, [gen.results, handleVanityResults]);
 
   const handleNetworkSwitch = (net: 'btc' | 'eth') => {
     if (gen.isRunning) gen.stop();
@@ -527,7 +565,7 @@ export default function Index() {
         {/* ── VULNERABILITY SCANNER TAB ─────────────────────────────────── */}
         {activeTab === 'scanner' && (
           <div className="animate-fade-in">
-            <VulnerabilityScanner />
+            <VulnerabilityScanner onNewResults={handleScannerResults} />
           </div>
         )}
 
@@ -537,7 +575,93 @@ export default function Index() {
         )}
 
         {/* ── WALLET TAB ───────────────────────────────────────────────── */}
-        {activeTab === 'wallet' && <WalletPanel />}
+        {activeTab === 'wallet' && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Sub-tab toggle */}
+            <div className="flex justify-center">
+              <div className="inline-flex rounded-lg border border-border bg-card p-1 gap-1">
+                <button
+                  onClick={() => setWalletSubTab('active')}
+                  className={`px-5 py-2 rounded-md text-sm font-medium transition-all ${
+                    walletSubTab === 'active'
+                      ? 'bg-secondary text-secondary-foreground glow-blue'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  🔓 Active Wallets
+                </button>
+                <button
+                  onClick={() => setWalletSubTab('passive')}
+                  className={`px-5 py-2 rounded-md text-sm font-medium transition-all ${
+                    walletSubTab === 'passive'
+                      ? 'bg-primary text-primary-foreground glow-mint'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  📥 Passive Wallets
+                  {passive.count > 0 && (
+                    <span className="ml-2 rounded-full bg-primary/20 px-2 py-0.5 text-xs font-mono">
+                      {passive.count.toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {walletSubTab === 'active' && <WalletPanel />}
+
+            {walletSubTab === 'passive' && (
+              <div className="max-w-xl mx-auto rounded-xl border border-primary/25 bg-primary/[0.04] p-8 space-y-6 text-center animate-fade-in">
+                <div className="space-y-2">
+                  <div className="text-5xl font-bold font-mono text-primary text-glow-mint">
+                    {passive.count.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    addresses auto-collected
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-left">
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-1">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</div>
+                    <div className="text-sm font-medium">✨ Vanity Generator</div>
+                    <div className="text-xs text-muted-foreground">All results tab matches</div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-1">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</div>
+                    <div className="text-sm font-medium">🔍 Vulnerability Scanner</div>
+                    <div className="text-xs text-muted-foreground">All scanner results</div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card px-4 py-3 text-xs text-muted-foreground space-y-1">
+                  <p>Addresses are stored locally in your browser and persist across sessions.</p>
+                  <p>They are <span className="text-primary font-medium">automatically unlocked</span> — no manual import needed.</p>
+                  <p className="font-mono text-[10px]">Storage: chunked localStorage · No limit</p>
+                </div>
+
+                {passive.count > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Clear all ${passive.count.toLocaleString()} passive wallets? This cannot be undone.`)) {
+                        passive.clearAll();
+                      }
+                    }}
+                    className="rounded-lg border border-destructive/40 px-4 py-2 text-xs text-destructive hover:bg-destructive/10 transition-all"
+                  >
+                    🗑 Clear all passive wallets
+                  </button>
+                )}
+
+                {passive.count === 0 && (
+                  <p className="text-xs text-muted-foreground italic">
+                    No addresses yet. Run the Vanity Generator or Vulnerability Scanner to start collecting.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── DRAINER TAB ──────────────────────────────────────────────── */}
         {activeTab === 'drainer' && <DrainerPanel />}
