@@ -102,6 +102,7 @@ export default function Index() {
   const [prefix, setPrefix] = useState('');
   const [suffix, setSuffix] = useState('');
   const [btcType, setBtcType] = useState('p2pkh');
+  const [generationYear, setGenerationYear] = useState<number | null>(null);
   const [targetAddress, setTargetAddress] = useState('');
   const [entropyCount, setEntropyCount] = useState(0);
   const [onlyWithBalance, setOnlyWithBalance] = useState(false);
@@ -149,12 +150,20 @@ export default function Index() {
 
   const handleStart = () => {
     if (!canStart) return;
+    // When year mode is active, auto-select the era's default address type
+    let effectiveAddrType = network === 'btc' ? btcType : 'eth';
+    if (generationYear !== null && network === 'btc') {
+      if (generationYear <= 2016) effectiveAddrType = 'p2pkh';
+      else if (generationYear <= 2018) effectiveAddrType = 'p2sh';
+      else if (generationYear >= 2021) effectiveAddrType = 'bech32';
+    }
     gen.start({
       network,
       prefix: targetAddress ? '' : prefix,
       suffix: targetAddress ? '' : suffix,
-      addressType: network === 'btc' ? btcType : 'eth',
+      addressType: effectiveAddrType,
       targetAddress: targetAddress || undefined,
+      generationYear: generationYear ?? undefined,
     });
   };
 
@@ -283,6 +292,92 @@ export default function Index() {
                   Ξ Ethereum
                 </button>
               </div>
+            </div>
+
+            {/* ── Year-Mode Selector ──────────────────────────────────────── */}
+            <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    🗓 Wallet Generation Year
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Simulate the RNG &amp; address format used by real wallets in that year
+                  </p>
+                </div>
+                {generationYear !== null && (
+                  <button
+                    onClick={() => setGenerationYear(null)}
+                    className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  [2009,'Genesis'],[2010,'Miners'],[2011,'Brainwallet'],[2012,'Web Wallet'],
+                  [2013,'Mt.Gox'],[2014,'Android Bug'],[2015,'ETH Launch'],[2016,'DAO Era'],
+                  [2017,'ICO Boom'],[2018,'Bear Mkt'],[2019,'Bech32'],[2020,'DeFi'],
+                  [2021,'Taproot'],[2022,'Merge'],[2023,'Ordinals'],[2024,'ETF Era'],
+                ] as [number, string][]).map(([yr, tag]) => (
+                  <button
+                    key={yr}
+                    onClick={() => setGenerationYear(generationYear === yr ? null : yr)}
+                    disabled={gen.isRunning}
+                    title={
+                      yr <= 2014 ? `${yr}: Bitcoin only · Low-entropy RNG patterns` :
+                      yr <= 2016 ? `${yr}: ETH newly launched · Web3.js early RNG` :
+                      yr <= 2018 ? `${yr}: HD wallets standard · P2SH SegWit` :
+                      `${yr}: Full CSPRNG · ${yr >= 2021 ? 'Taproot / Bech32m' : 'Bech32 native SegWit'}`
+                    }
+                    className={`px-2.5 py-1 rounded text-[11px] font-mono border transition-all disabled:opacity-50 ${
+                      generationYear === yr
+                        ? 'bg-primary/20 border-primary/60 text-primary font-semibold'
+                        : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                    }`}
+                  >
+                    {yr}
+                    <span className="ml-1 text-[9px] opacity-60">{tag}</span>
+                  </button>
+                ))}
+              </div>
+
+              {generationYear !== null && (
+                <div className={`rounded-md px-3 py-2 text-[11px] space-y-0.5 border ${
+                  generationYear <= 2014 ? 'bg-destructive/10 border-destructive/30 text-destructive' :
+                  generationYear <= 2018 ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
+                  'bg-primary/10 border-primary/30 text-primary'
+                }`}>
+                  <div className="font-semibold">
+                    {generationYear <= 2014 ? '🔴 High vulnerability era' :
+                     generationYear <= 2018 ? '🟡 Moderate vulnerability era' :
+                     '🟢 Modern secure era'}
+                  </div>
+                  <div className="opacity-80">
+                    {generationYear === 2009 ? 'OpenSSL rand() with counter seeds. Many keys near-sequential.' :
+                     generationYear === 2010 ? 'Shared pool mining entropy. GPU wallets with weak seeding.' :
+                     generationYear === 2011 ? 'PHP mt_rand seeded with time(). BitcoinTalk brainwallet patterns.' :
+                     generationYear === 2012 ? 'Server-side PHP wallets. Predictable seed windows.' :
+                     generationYear === 2013 ? 'JavaScript Date.now() mixed entropy. Exchange hot wallets.' :
+                     generationYear === 2014 ? 'Android SecureRandom bias (CVE-2013-7372). Mobile wallet era.' :
+                     generationYear === 2015 ? 'web3.js v0.x Math.random mixing. Early ETH wallets.' :
+                     generationYear === 2016 ? 'MyEtherWallet v1, MetaMask alpha. Similar JS RNG issues.' :
+                     generationYear === 2017 ? 'BIP44 HD wallets. Many low-entropy mnemonic seeds from users.' :
+                     generationYear === 2018 ? 'Hardware wallets rise. Still many soft-wallet weak seeds.' :
+                     generationYear === 2019 ? 'Improved CSPRNG. Native SegWit bech32 becomes default.' :
+                     generationYear === 2020 ? 'MetaMask v8+. Full browser CSPRNG. DeFi wallet patterns.' :
+                     generationYear === 2021 ? 'Taproot activated. Full entropy mixing. NFT wallet surge.' :
+                     generationYear === 2022 ? 'ETH Merge. EIP-4361. Hardware wallet standard.' :
+                     generationYear === 2023 ? 'Ordinals / Taproot standard. Strong entropy everywhere.' :
+                     'Spot ETF era. Institutional wallets. Maximum entropy.' }
+                    {network === 'btc' && generationYear <= 2016 ? ' → Forces P2PKH (Legacy) format.' :
+                     network === 'btc' && generationYear <= 2018 ? ' → Forces P2SH (SegWit-wrapped) format.' :
+                     network === 'btc' && generationYear >= 2019 ? ' → Forces Bech32 (native SegWit) format.' : ''}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Generator Controls ───────────────────────────────────── */}
