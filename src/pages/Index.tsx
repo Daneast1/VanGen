@@ -104,6 +104,7 @@ export default function Index() {
   const [suffix, setSuffix] = useState('');
   const [btcType, setBtcType] = useState('p2pkh');
   const [generationYear, setGenerationYear] = useState<number | null>(null);
+  const [attackMode, setAttackMode] = useState<'standard' | 'deep'>('standard');
   const [targetAddress, setTargetAddress] = useState('');
   const [entropyCount, setEntropyCount] = useState(0);
   const [onlyWithBalance, setOnlyWithBalance] = useState(false);
@@ -148,7 +149,8 @@ export default function Index() {
   const prefixValid = validateChars(prefix);
   const suffixValid = validateChars(suffix);
   const hasPattern = prefix.length > 0 || suffix.length > 0 || targetAddress.length > 0;
-  const canStart = hasPattern && (targetAddress.length > 0 || (prefixValid && suffixValid));
+  const canStart = (generationYear !== null && !weakScan.stats.isRunning) ||
+    (hasPattern && (targetAddress.length > 0 || (prefixValid && suffixValid)));
 
   const handleStart = () => {
     if (!canStart) return;
@@ -160,11 +162,14 @@ export default function Index() {
     }
     if (generationYear !== null) {
       // Year mode: scan known weak keys from that era, check on-chain for real hits
-      weakScan.scan(generationYear, network, effectiveAddrType, (found) => {
+      weakScan.scan(
+        generationYear, network, effectiveAddrType, attackMode,
+        prefix, suffix,
+        (found) => {
         harvestKeys([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType }], 'vanity');
         passive.addAddresses([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType, source: 'vanity', timestamp: found.timestamp }]);
         // Push into gen results so UI shows them
-        gen.pushResult(found);
+        gen.pushResult({ ...found, attackType: (found as any).attackType });
       });
     } else {
       gen.start({
@@ -359,17 +364,46 @@ export default function Index() {
                 ))}
               </div>
 
-              {generationYear !== null && weakScan.stats.isRunning && (
-                <div className="rounded-md px-3 py-2 text-[11px] border border-primary/40 bg-primary/10 space-y-1 font-mono animate-pulse">
-                  <div className="flex justify-between">
-                    <span className="text-primary font-semibold">🔍 Scanning era weak keys…</span>
-                    <span className="text-muted-foreground">{weakScan.stats.checked.toLocaleString()} checked</span>
+              {/* Attack Mode Toggle */}
+              {generationYear !== null && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Attack depth:</span>
+                  <div className="flex rounded-md border border-border overflow-hidden text-[10px] font-mono">
+                    <button
+                      onClick={() => setAttackMode('standard')}
+                      disabled={weakScan.stats.isRunning}
+                      className={`px-3 py-1 transition-all disabled:opacity-50 ${attackMode === 'standard' ? 'bg-primary/20 text-primary font-bold' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      Standard
+                    </button>
+                    <button
+                      onClick={() => setAttackMode('deep')}
+                      disabled={weakScan.stats.isRunning}
+                      className={`px-3 py-1 border-l border-border transition-all disabled:opacity-50 ${attackMode === 'deep' ? 'bg-destructive/20 text-destructive font-bold' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      ☢ Deep
+                    </button>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground truncate">{weakScan.stats.currentSource}</span>
+                  <span className="text-[9px] text-muted-foreground">
+                    {attackMode === 'deep' ? 'BSGS + timestamp sweep + sig attacks · slower' : 'Brainwallet + timestamp + sig attacks · faster'}
+                  </span>
+                </div>
+              )}
+
+              {generationYear !== null && weakScan.stats.isRunning && (
+                <div className="rounded-md px-3 py-2 text-[11px] border border-primary/40 bg-primary/10 space-y-1.5 font-mono">
+                  <div className="flex justify-between items-center">
+                    <span className="text-primary font-semibold animate-pulse">🔍 Cryptanalysis active…</span>
                     <span className="text-green-400 font-bold">{weakScan.stats.found} hits</span>
                   </div>
-                  <div className="text-muted-foreground font-mono text-[9px]">key: {weakScan.stats.currentKey}</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
+                    <span className="text-muted-foreground">Keys checked</span>
+                    <span className="text-foreground text-right">{weakScan.stats.checked.toLocaleString()}</span>
+                    <span className="text-muted-foreground">Sig analyses</span>
+                    <span className="text-foreground text-right">{weakScan.stats.sigAttacksRun} ({weakScan.stats.sigAttacksFound} recoveries)</span>
+                  </div>
+                  <div className="text-[9px] text-muted-foreground truncate">▶ {weakScan.stats.currentAttack}</div>
+                  <div className="text-[9px] text-muted-foreground font-mono opacity-60">key: {weakScan.stats.currentKey}</div>
                 </div>
               )}
               {generationYear !== null && (
@@ -384,7 +418,9 @@ export default function Index() {
                      '🟢 Modern secure era'}
                   </div>
                   <div className="opacity-80">
-                    {generationYear === 2009 ? 'OpenSSL rand() with counter seeds. Many keys near-sequential.' :
+                    {!hasPattern
+                      ? 'No prefix/suffix — generalized sweep: all known weak/vulnerable keys from this era will be checked on-chain. Any with history will appear in results.'
+                      : generationYear === 2009 ? 'OpenSSL rand() with counter seeds. Many keys near-sequential.' :
                      generationYear === 2010 ? 'Shared pool mining entropy. GPU wallets with weak seeding.' :
                      generationYear === 2011 ? 'PHP mt_rand seeded with time(). BitcoinTalk brainwallet patterns.' :
                      generationYear === 2012 ? 'Server-side PHP wallets. Predictable seed windows.' :
