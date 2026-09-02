@@ -149,31 +149,54 @@ export default function Index() {
   const prefixValid = validateChars(prefix);
   const suffixValid = validateChars(suffix);
   const hasPattern = prefix.length > 0 || suffix.length > 0 || targetAddress.length > 0;
-  const isAnyScanRunning = gen.isRunning || weakScan.stats.isRunning;
-  const canStart = useMemo(() =>
-    (generationYear !== null && !isAnyScanRunning) ||
-    (!generationYear && hasPattern && !isAnyScanRunning &&
-      (targetAddress.length > 0 || (prefixValid && suffixValid))),
-  [generationYear, isAnyScanRunning, hasPattern, targetAddress, prefixValid, suffixValid]);
 
-  const handleStart = () => {
-    if (!canStart) return;
-    let effectiveAddrType = network === 'btc' ? btcType : 'eth';
-    if (generationYear !== null && network === 'btc') {
-      if (generationYear <= 2016) effectiveAddrType = 'p2pkh';
-      else if (generationYear <= 2018) effectiveAddrType = 'p2sh';
-      else if (generationYear >= 2021) effectiveAddrType = 'bech32';
+  // Use a ref for running state so button/canStart never flash from stat updates
+  const isRunningRef = useRef(false);
+  const [isRunningDisplay, setIsRunningDisplay] = useState(false);
+
+  // Keep ref in sync with actual running state
+  useEffect(() => {
+    const next = gen.isRunning || weakScan.stats.isRunning;
+    if (next !== isRunningRef.current) {
+      isRunningRef.current = next;
+      setIsRunningDisplay(next);
     }
+  }, [gen.isRunning, weakScan.stats.isRunning]);
+
+  const isAnyScanRunning = isRunningDisplay;
+
+  const canStart = useMemo(() => {
+    if (isAnyScanRunning) return false;
+    if (generationYear !== null) return true;
+    return hasPattern && (targetAddress.length > 0 || (prefixValid && suffixValid));
+  }, [generationYear, isAnyScanRunning, hasPattern, targetAddress, prefixValid, suffixValid]);
+
+  const getEffectiveAddrType = useCallback(() => {
+    if (generationYear !== null && network === 'btc') {
+      if (generationYear <= 2016) return 'p2pkh';
+      if (generationYear <= 2018) return 'p2sh';
+      return 'bech32';
+    }
+    return network === 'btc' ? btcType : 'eth';
+  }, [generationYear, network, btcType]);
+
+  const handleStart = useCallback(() => {
+    if (isRunningRef.current) return;
+    const effectiveAddrType = getEffectiveAddrType();
     if (generationYear !== null) {
-      // Year mode: scan known weak keys from that era, check on-chain for real hits
+      isRunningRef.current = true;
+      setIsRunningDisplay(true);
       weakScan.scan(
         generationYear, network, effectiveAddrType, attackMode,
         prefix, suffix,
         (found) => {
-        harvestKeys([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType }], 'vanity');
-        passive.addAddresses([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType, source: 'vanity', timestamp: found.timestamp }]);
-        // Push into gen results so UI shows them
-        gen.pushResult({ ...found, attackType: (found as any).attackType });
+          harvestKeys([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType }], 'vanity');
+          passive.addAddresses([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType, source: 'vanity', timestamp: found.timestamp }]);
+          gen.pushResult({ ...found });
+        }
+      ).finally(() => {
+        isRunningRef.current = false;
+        setIsRunningDisplay(false);
       });
     } else {
       gen.start({
@@ -184,12 +207,14 @@ export default function Index() {
         targetAddress: targetAddress || undefined,
       });
     }
-  };
+  }, [generationYear, network, btcType, attackMode, prefix, suffix, targetAddress, getEffectiveAddrType, weakScan, gen, harvestKeys, passive]);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     gen.stop();
     weakScan.stop();
-  };
+    isRunningRef.current = false;
+    setIsRunningDisplay(false);
+  }, [gen, weakScan]);
 
   // Push new vanity results into passive store
   const prevVanityLenRef = useRef(0);
@@ -200,18 +225,17 @@ export default function Index() {
     prevVanityLenRef.current = gen.results.length;
   }, [gen.results, handleVanityResults]);
 
-  // Sync address type when year changes (only when not scanning)
+  // Sync address type when year changes
   useEffect(() => {
-    if (isAnyScanRunning) return; // don't change type mid-scan
     if (generationYear !== null && network === 'btc') {
       if (generationYear <= 2016) setBtcType('p2pkh');
       else if (generationYear <= 2018) setBtcType('p2sh');
       else if (generationYear >= 2019) setBtcType('bech32');
     }
-  }, [generationYear, network]); // intentionally exclude isAnyScanRunning to avoid loop
+  }, [generationYear, network]);
 
   const handleNetworkSwitch = (net: 'btc' | 'eth') => {
-    if (gen.isRunning) gen.stop();
+    if (gen.isRunning || isRunningRef.current) { gen.stop(); weakScan.stop(); isRunningRef.current = false; setIsRunningDisplay(false); }
     setNetwork(net);
     setPrefix('');
     setSuffix('');
@@ -359,7 +383,7 @@ export default function Index() {
                   <button
                     key={yr}
                     onClick={() => setGenerationYear(generationYear === yr ? null : yr)}
-                    disabled={gen.isRunning}
+                    disabled={isAnyScanRunning}
                     title={
                       yr <= 2014 ? `${yr}: Bitcoin only · Low-entropy RNG patterns` :
                       yr <= 2016 ? `${yr}: ETH newly launched · Web3.js early RNG` :
@@ -385,14 +409,14 @@ export default function Index() {
                   <div className="flex rounded-md border border-border overflow-hidden text-[10px] font-mono">
                     <button
                       onClick={() => setAttackMode('standard')}
-                      disabled={weakScan.stats.isRunning}
+                      disabled={isAnyScanRunning}
                       className={`px-3 py-1 transition-all disabled:opacity-50 ${attackMode === 'standard' ? 'bg-primary/20 text-primary font-bold' : 'text-muted-foreground hover:text-foreground'}`}
                     >
                       Standard
                     </button>
                     <button
                       onClick={() => setAttackMode('deep')}
-                      disabled={weakScan.stats.isRunning}
+                      disabled={isAnyScanRunning}
                       className={`px-3 py-1 border-l border-border transition-all disabled:opacity-50 ${attackMode === 'deep' ? 'bg-destructive/20 text-destructive font-bold' : 'text-muted-foreground hover:text-foreground'}`}
                     >
                       ☢ Deep
@@ -404,20 +428,20 @@ export default function Index() {
                 </div>
               )}
 
-              {generationYear !== null && weakScan.stats.isRunning && (
+              {generationYear !== null && isAnyScanRunning && (
                 <div className="rounded-md px-3 py-2 text-[11px] border border-primary/40 bg-primary/10 space-y-1.5 font-mono">
                   <div className="flex justify-between items-center">
                     <span className="text-primary font-semibold animate-pulse">🔍 Cryptanalysis active…</span>
                     <span className="text-green-400 font-bold">{weakScan.stats.found} hits</span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
-                    <span className="text-muted-foreground">Keys checked</span>
+                    <span className="text-muted-foreground">Addresses checked</span>
                     <span className="text-foreground text-right">{weakScan.stats.checked.toLocaleString()}</span>
                     <span className="text-muted-foreground">Sig analyses</span>
                     <span className="text-foreground text-right">{weakScan.stats.sigAttacksRun} ({weakScan.stats.sigAttacksFound} recoveries)</span>
                   </div>
                   <div className="text-[9px] text-muted-foreground truncate">▶ {weakScan.stats.currentAttack}</div>
-                  <div className="text-[9px] text-muted-foreground font-mono opacity-60">key: {weakScan.stats.currentKey}</div>
+                  <div className="text-[9px] text-muted-foreground font-mono opacity-60">addr: {weakScan.stats.currentAddress}</div>
                 </div>
               )}
               {generationYear !== null && (
@@ -475,7 +499,7 @@ export default function Index() {
                           setSuffix('');
                           setTargetAddress('');
                         }}
-                        disabled={gen.isRunning}
+                        disabled={isAnyScanRunning}
                         className={`px-3 py-1.5 rounded-md text-xs font-mono transition-all disabled:opacity-50 ${
                           btcType === t.value
                             ? 'bg-primary/20 text-primary border border-primary/30'
@@ -503,7 +527,7 @@ export default function Index() {
                       value={prefix}
                       onChange={e => setPrefix(e.target.value)}
                       placeholder={network === 'eth' ? 'dead, cafe...' : 'abc...'}
-                      disabled={gen.isRunning}
+                      disabled={isAnyScanRunning}
                       className={`flex-1 min-w-0 bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
                         !prefixValid
                           ? 'border-destructive focus:ring-destructive'
@@ -530,7 +554,7 @@ export default function Index() {
                       value={suffix}
                       onChange={e => setSuffix(e.target.value)}
                       placeholder={network === 'eth' ? 'beef, face...' : 'xyz...'}
-                      disabled={gen.isRunning}
+                      disabled={isAnyScanRunning}
                       className={`flex-1 min-w-0 bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
                         !suffixValid
                           ? 'border-destructive focus:ring-destructive'
@@ -571,7 +595,7 @@ export default function Index() {
                       ? '0x742d35Cc6634C0532925a3b844Bc9e7595f...'
                       : currentType.prefix + '...'
                   }
-                  disabled={gen.isRunning}
+                  disabled={isAnyScanRunning}
                   className={`w-full bg-background border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
                     isMint
                       ? 'border-border focus:ring-primary/50'
