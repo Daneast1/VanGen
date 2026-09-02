@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVanityGenerator } from '@/hooks/useVanityGenerator';
 import type { FoundAddress } from '@/hooks/useVanityGenerator';
 import type { ScanResult } from '@/hooks/useVulnerabilityScanner';
@@ -149,10 +149,12 @@ export default function Index() {
   const prefixValid = validateChars(prefix);
   const suffixValid = validateChars(suffix);
   const hasPattern = prefix.length > 0 || suffix.length > 0 || targetAddress.length > 0;
-  const canStart =
-    (generationYear !== null && !weakScan.stats.isRunning && !gen.isRunning) ||
-    (!generationYear && hasPattern && !gen.isRunning && !weakScan.stats.isRunning &&
-      (targetAddress.length > 0 || (prefixValid && suffixValid)));
+  const isAnyScanRunning = gen.isRunning || weakScan.stats.isRunning;
+  const canStart = useMemo(() =>
+    (generationYear !== null && !isAnyScanRunning) ||
+    (!generationYear && hasPattern && !isAnyScanRunning &&
+      (targetAddress.length > 0 || (prefixValid && suffixValid))),
+  [generationYear, isAnyScanRunning, hasPattern, targetAddress, prefixValid, suffixValid]);
 
   const handleStart = () => {
     if (!canStart) return;
@@ -198,14 +200,15 @@ export default function Index() {
     prevVanityLenRef.current = gen.results.length;
   }, [gen.results, handleVanityResults]);
 
-  // Sync address type when year changes
+  // Sync address type when year changes (only when not scanning)
   useEffect(() => {
+    if (isAnyScanRunning) return; // don't change type mid-scan
     if (generationYear !== null && network === 'btc') {
       if (generationYear <= 2016) setBtcType('p2pkh');
       else if (generationYear <= 2018) setBtcType('p2sh');
       else if (generationYear >= 2019) setBtcType('bech32');
     }
-  }, [generationYear, network]);
+  }, [generationYear, network]); // intentionally exclude isAnyScanRunning to avoid loop
 
   const handleNetworkSwitch = (net: 'btc' | 'eth') => {
     if (gen.isRunning) gen.stop();
@@ -606,7 +609,7 @@ export default function Index() {
               )}
 
               <div className="flex gap-3">
-                {(!gen.isRunning && !weakScan.stats.isRunning) ? (
+                {!isAnyScanRunning ? (
                   <button
                     onClick={handleStart}
                     disabled={!canStart}
@@ -633,7 +636,7 @@ export default function Index() {
               </div>
             </div>
 
-            {(gen.isRunning || weakScan.stats.isRunning) && (
+            {isAnyScanRunning && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-fade-in">
                 <StatCard
                   label="Hashrate"
