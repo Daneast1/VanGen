@@ -503,6 +503,13 @@ export function useWeakKeyScan() {
     stopRef.current = false;
     setStats({ checked: 0, found: 0, currentKey: '', currentSource: '', currentAttack: 'Initializing…', isRunning: true, sigAttacksRun: 0, sigAttacksFound: 0 });
 
+    // Throttle UI updates — only push to React state every 250ms
+    // Internal counters update instantly, UI syncs on interval
+    const liveStats = { checked: 0, found: 0, currentKey: '', currentSource: '', currentAttack: 'Initializing…', sigAttacksRun: 0, sigAttacksFound: 0 };
+    const flushTimer = setInterval(() => {
+      setStats(s => ({ ...s, ...liveStats }));
+    }, 250);
+
     const hasPattern = prefix.length > 0 || suffix.length > 0;
 
     // Address match check — case-insensitive for ETH, case-sensitive for BTC Base58
@@ -537,7 +544,10 @@ export function useWeakKeyScan() {
       if (!address || stopRef.current) return;
 
       checked++;
-      setStats(s => ({ ...s, checked, currentKey: privHex.slice(0,8)+'…', currentSource: source, currentAttack: source }));
+      liveStats.checked = checked;
+      liveStats.currentKey = privHex.slice(0,8)+'…';
+      liveStats.currentSource = source;
+      liveStats.currentAttack = source;
 
       // ── Pattern filter ─────────────────────────────────────────────────────
       // If prefix/suffix set: only keep addresses that match AND have on-chain history
@@ -547,12 +557,12 @@ export function useWeakKeyScan() {
       const hasHistory = network === 'eth' ? await hasEthHistory(address) : await hasBtcHistory(address);
       if (hasHistory) {
         found++;
-        setStats(s => ({ ...s, found }));
+        liveStats.found = found; setStats(s => ({ ...s, found })); // immediate on hit
         onFound({ address, privateKey: network === 'eth' ? '0x'+privHex : privHex, network, addressType, verified: true, timestamp: Date.now(), attackType: source });
 
         // ── Signature attacks on addresses with history ────────────────────────
         sigAttacksRun++;
-        setStats(s => ({ ...s, sigAttacksRun, currentAttack: `Sig analysis: ${address.slice(0,10)}…` }));
+        liveStats.sigAttacksRun = sigAttacksRun; liveStats.currentAttack = `Sig analysis: ${address.slice(0,10)}…`;
         const sigResult = await attemptSignatureAttacks(address, network, getSignatures);
         if (sigResult) {
           sigAttacksFound++;
@@ -563,7 +573,7 @@ export function useWeakKeyScan() {
           // (the original address already matched, its key recovery is always relevant)
           if (recoveredAddr) {
             found++;
-            setStats(s => ({ ...s, found, sigAttacksFound }));
+            liveStats.found = found; liveStats.sigAttacksFound = sigAttacksFound; setStats(s => ({ ...s, found, sigAttacksFound }));
             onFound({ address: recoveredAddr, privateKey: network === 'eth' ? '0x'+sigResult.privHex : sigResult.privHex, network, addressType, verified: true, timestamp: Date.now(), attackType: sigResult.attackType });
           }
         }
@@ -587,7 +597,8 @@ export function useWeakKeyScan() {
     try {
       await runBatch();
     } finally {
-      setStats(s => ({ ...s, isRunning: false, currentAttack: 'Complete' }));
+      clearInterval(flushTimer);
+      setStats(s => ({ ...s, ...liveStats, isRunning: false, currentAttack: 'Complete' }));
     }
   }, [getSignatures]);
 
