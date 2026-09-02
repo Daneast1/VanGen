@@ -8,6 +8,7 @@ export interface FoundAddress {
   addressType: string;
   verified: boolean;
   timestamp: number;
+  attackType?: string;
 }
 
 interface GeneratorConfig {
