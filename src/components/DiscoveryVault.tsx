@@ -245,7 +245,14 @@ export default function DiscoveryVault({ results, onClear, onlyWithBalance = fal
                     )}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground uppercase">{r.network} {r.addressType}</td>
-                  <td className="px-4 py-2">{r.verified ? '✅' : '❌'}</td>
+                  <td className="px-4 py-2">
+                    {r.verified ? '✅' : '❌'}
+                    {(r as any).attackType && (
+                      <span className="ml-1 rounded bg-destructive/20 px-1 py-0.5 text-[8px] font-mono text-destructive align-middle" title={(r as any).attackType}>
+                        {(r as any).attackType.split('(')[0].trim().slice(0,14)}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
