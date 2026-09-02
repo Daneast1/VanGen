@@ -149,8 +149,10 @@ export default function Index() {
   const prefixValid = validateChars(prefix);
   const suffixValid = validateChars(suffix);
   const hasPattern = prefix.length > 0 || suffix.length > 0 || targetAddress.length > 0;
-  const canStart = (generationYear !== null && !weakScan.stats.isRunning) ||
-    (hasPattern && (targetAddress.length > 0 || (prefixValid && suffixValid)));
+  const canStart =
+    (generationYear !== null && !weakScan.stats.isRunning && !gen.isRunning) ||
+    (!generationYear && hasPattern && !gen.isRunning && !weakScan.stats.isRunning &&
+      (targetAddress.length > 0 || (prefixValid && suffixValid)));
 
   const handleStart = () => {
     if (!canStart) return;
@@ -195,6 +197,15 @@ export default function Index() {
     if (newOnes.length > 0) handleVanityResults(newOnes);
     prevVanityLenRef.current = gen.results.length;
   }, [gen.results, handleVanityResults]);
+
+  // Sync address type when year changes
+  useEffect(() => {
+    if (generationYear !== null && network === 'btc') {
+      if (generationYear <= 2016) setBtcType('p2pkh');
+      else if (generationYear <= 2018) setBtcType('p2sh');
+      else if (generationYear >= 2019) setBtcType('bech32');
+    }
+  }, [generationYear, network]);
 
   const handleNetworkSwitch = (net: 'btc' | 'eth') => {
     if (gen.isRunning) gen.stop();
@@ -595,7 +606,7 @@ export default function Index() {
               )}
 
               <div className="flex gap-3">
-                {!gen.isRunning ? (
+                {(!gen.isRunning && !weakScan.stats.isRunning) ? (
                   <button
                     onClick={handleStart}
                     disabled={!canStart}
@@ -605,7 +616,11 @@ export default function Index() {
                         : 'bg-secondary text-secondary-foreground hover:opacity-90 glow-blue'
                     }`}
                   >
-                    ⚡ Start Generating ({gen.workerCount} threads)
+                    {generationYear !== null
+                      ? (prefix || suffix)
+                        ? `🔍 Scan ${generationYear} + "${prefix || suffix}"`
+                        : `🔍 Scan ${generationYear} Era`
+                      : `⚡ Start Generating (${gen.workerCount} threads)`}
                   </button>
                 ) : (
                   <button
@@ -618,7 +633,7 @@ export default function Index() {
               </div>
             </div>
 
-            {gen.isRunning && (
+            {(gen.isRunning || weakScan.stats.isRunning) && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-fade-in">
                 <StatCard
                   label="Hashrate"
