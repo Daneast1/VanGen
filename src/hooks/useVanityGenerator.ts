@@ -114,6 +114,13 @@ export function useVanityGenerator() {
     setFoundCount(0);
   }, []);
 
+  // Push a single externally-found address (e.g. from the weak-key year scan)
+  // into the results list so it renders in the Discovery Vault.
+  const pushResult = useCallback((found: FoundAddress) => {
+    setFoundCount(prev => prev + 1);
+    setResults(prev => [found, ...prev].slice(0, 500));
+  }, []);
+
   // Drop candidates that failed the on-chain result filter so the vault only
   // ever holds addresses matching the pattern AND the requested criteria.
   const removeResults = useCallback((addresses: string[]) => {
