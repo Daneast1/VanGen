@@ -104,6 +104,7 @@ export interface BgLogEntry {
   address?: string;
   network?: string;
   scanned?: number;
+  found?: number;
   funded?: number;
   drained?: number;
   error?: string;

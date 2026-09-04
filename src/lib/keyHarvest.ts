@@ -77,7 +77,7 @@ function deserialize(row: string): HarvestedKey | null {
       address,
       privHex,
       network: network as 'btc' | 'eth',
-      addrType: addrType || undefined,
+      addrType: (addrType || undefined) as import('@/hooks/useWallet').BtcAddrType | undefined,
       source: source as HarvestSource,
       addedAt: parseInt(addedAt, 10) || Date.now(),
       wif: wif || undefined,

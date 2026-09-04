@@ -104,7 +104,7 @@ async function triggerSweep(tag: TagEntry, onLog: (l: TagSweepLog) => void): Pro
     address: tag.address,
     privHex: tag.privHex,
     network: tag.network,
-    addrType: tag.addrType,
+    addrType: tag.addrType as WalletAccount['addrType'],
   };
 
   try {
