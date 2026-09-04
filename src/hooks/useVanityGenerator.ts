@@ -147,6 +147,7 @@ export function useVanityGenerator() {
     injectEntropy,
     clearResults,
     removeResults,
+    pushResult,
     workerCount,
   };
 }
